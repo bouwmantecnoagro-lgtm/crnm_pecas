@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { AlertCircle, ChevronRight, MapPin, ReceiptText, Tractor, TrendingUp, Users, X, Loader2, Database, Zap, Filter, Award, AlertTriangle, RotateCcw, Hourglass } from 'lucide-react';
+import { AlertCircle, ChevronRight, MapPin, ReceiptText, Tractor, TrendingUp, Users, X, Loader2, Database, Zap, Filter, Award, AlertTriangle, RotateCcw, Hourglass, Info } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, Cell, LabelList } from 'recharts';
 import Link from 'next/link';
 import Cliente360Modal from '@/components/Cliente360Modal';
@@ -377,6 +377,7 @@ export default function Dashboard() {
                 subtitle={`${totalAtivos} ativos • ${clientesFiltrados.length - totalAtivos} bloqueados`}
                 icon={<Users className="text-sky-400" />}
                 accentColor="sky"
+                tooltip="Quantidade total de clientes na base, respeitando os filtros aplicados (vendedor/filial). 'Ativos' são clientes com STATUS_BASE = A no Protheus; 'Bloqueados' têm qualquer outro valor."
               />
               <KpiCard
                 title="Risco de Evasão (Churn)"
@@ -384,6 +385,7 @@ export default function Dashboard() {
                 subtitle="Clientes há >90 dias sem compra"
                 icon={<AlertCircle className="text-red-400" />}
                 accentColor="red"
+                tooltip="Clientes com mais de 90 dias sem nenhuma compra registrada (campo DIAS_SEM_COMPRA do Protheus). São candidatos a ações de reativação."
               />
               <KpiCard
                 title="Oportunidades Cross-Sell"
@@ -392,6 +394,7 @@ export default function Dashboard() {
                 icon={<Tractor className="text-amber-400" />}
                 accentColor="amber"
                 href="/maquinas"
+                tooltip={`Máquinas vendidas dentro do período selecionado (${subPeriodoTxt}). Cada equipamento novo é uma oportunidade aberta para venda de peças e consumíveis.`}
               />
               <KpiCard
                 title="Orçamentos Abertos"
@@ -400,6 +403,7 @@ export default function Dashboard() {
                 icon={<ReceiptText className="text-blue-400" />}
                 accentColor="sky"
                 href="/orcamentos"
+                tooltip="Soma do valor (R$) dos orçamentos com STATUS = ABERTO no período. Ainda não foram fechados (faturados, cancelados ou vencidos) — é o pipeline ativo."
               />
               <KpiCard
                 title="Ações Pendentes"
@@ -408,6 +412,7 @@ export default function Dashboard() {
                 icon={<Zap className="text-violet-400" />}
                 accentColor="violet"
                 href="/acoes"
+                tooltip="Ações comerciais com status PENDENTE, EM_ANDAMENTO ou REAGENDADA. 'Vencidas' têm data de vencimento anterior a hoje; 'para hoje' vencem na data de hoje."
               />
             </div>
 
@@ -426,6 +431,7 @@ export default function Dashboard() {
                 subtitle={`${orcFaturados.length} faturados de ${fechadosQtd} fechados`}
                 icon={<TrendingUp className="text-emerald-400" />}
                 accentColor="emerald"
+                tooltip="% de orçamentos faturados sobre o total fechado, por contagem. Fórmula: FATURADO / (FATURADO + CANCELADO + VENCIDO). VENCIDO conta como perda (orçamento que expirou sem fechar)."
               />
               <KpiCard
                 title="Win Rate (R$)"
@@ -433,6 +439,7 @@ export default function Dashboard() {
                 subtitle={`R$ ${(totalFaturado/1000).toFixed(0)}k de R$ ${(fechadosValor/1000).toFixed(0)}k`}
                 icon={<TrendingUp className="text-emerald-400" />}
                 accentColor="emerald"
+                tooltip="% do valor (R$) faturado sobre o valor total fechado. Fórmula: Σ R$ FATURADO / Σ R$ (FATURADO + CANCELADO + VENCIDO). Pode divergir muito do Win Rate por Qtd quando há orçamentos com tickets muito diferentes."
               />
               <KpiCard
                 title="Taxa de Cancelamento"
@@ -440,6 +447,7 @@ export default function Dashboard() {
                 subtitle={`${orcCancelados.length} cancelados`}
                 icon={<X className="text-red-400" />}
                 accentColor="red"
+                tooltip="% de orçamentos cancelados sobre o total fechado. Fórmula: CANCELADO / (FATURADO + CANCELADO + VENCIDO). Indica perdas ativas (cliente desistiu/recusou)."
               />
               <KpiCard
                 title="Taxa de Vencimento"
@@ -447,6 +455,7 @@ export default function Dashboard() {
                 subtitle={`${orcVencidos.length} orçamentos expiraram`}
                 icon={<Hourglass className="text-amber-400" />}
                 accentColor="amber"
+                tooltip="% de orçamentos que expiraram sem fechamento. Fórmula: VENCIDO / (FATURADO + CANCELADO + VENCIDO). Geralmente indica falha de follow-up — proposta enviada e nunca retomada."
               />
               <KpiCard
                 title="R$ Deixado na Mesa"
@@ -454,6 +463,7 @@ export default function Dashboard() {
                 subtitle="Volume em orçamentos vencidos"
                 icon={<AlertTriangle className="text-amber-400" />}
                 accentColor="amber"
+                tooltip="Soma do valor (R$) de todos os orçamentos com STATUS = VENCIDO no período filtrado. Volume teoricamente recuperável com follow-up melhor."
               />
             </div>
 
@@ -899,7 +909,8 @@ export default function Dashboard() {
   );
 }
 
-function KpiCard({ title, value, subtitle, icon, accentColor, href }: any) {
+function KpiCard({ title, value, subtitle, icon, accentColor, href, tooltip }: any) {
+  const [showTip, setShowTip] = useState(false);
   const colors: Record<string, { bg: string, glow: string }> = {
     red: { bg: 'bg-red-500/10', glow: 'bg-red-500/50' },
     sky: { bg: 'bg-sky-500/10', glow: 'bg-sky-500/50' },
@@ -909,21 +920,42 @@ function KpiCard({ title, value, subtitle, icon, accentColor, href }: any) {
   };
   const accent = colors[accentColor] || colors.sky;
 
-  const CardContent = (
-    <div className={`glass-panel p-5 flex flex-col relative overflow-hidden group ${href ? 'cursor-pointer hover:bg-white/[0.02]' : ''}`}>
+  const CardInner = (
+    <div className={`glass-panel p-5 flex flex-col relative overflow-hidden group h-full ${href ? 'cursor-pointer hover:bg-white/[0.02]' : ''}`}>
       <div className={`absolute top-0 left-0 w-full h-1 ${accent.glow} opacity-0 group-hover:opacity-100 transition-opacity`} />
-      <div className="flex justify-between items-start mb-3">
-        <h3 className="text-gray-400 font-medium text-xs uppercase tracking-wide">{title}</h3>
-        <div className={`p-2 rounded-lg ${accent.bg}`}>{icon}</div>
+      <div className="flex justify-between items-start mb-3 gap-2">
+        <div className="flex items-center gap-1.5 min-w-0">
+          <h3 className="text-gray-400 font-medium text-xs uppercase tracking-wide">{title}</h3>
+          {tooltip && (
+            <button
+              type="button"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onMouseEnter={() => setShowTip(true)}
+              onMouseLeave={() => setShowTip(false)}
+              onFocus={() => setShowTip(true)}
+              onBlur={() => setShowTip(false)}
+              className="inline-flex items-center justify-center w-4 h-4 rounded-full text-gray-500 hover:text-gray-200 hover:bg-white/10 transition-colors cursor-help shrink-0"
+              aria-label="Como este KPI é calculado"
+            >
+              <Info size={11} />
+            </button>
+          )}
+        </div>
+        <div className={`p-2 rounded-lg ${accent.bg} shrink-0`}>{icon}</div>
       </div>
       <div className="text-2xl font-bold text-white mb-1 group-hover:scale-[1.02] origin-left transition-transform">{value}</div>
       <p className="text-[11px] text-gray-500 mt-auto">{subtitle}</p>
     </div>
   );
 
-  if (href) {
-    return <Link href={href} className="block h-full">{CardContent}</Link>;
-  }
-
-  return CardContent;
+  return (
+    <div className="relative h-full">
+      {href ? <Link href={href} className="block h-full">{CardInner}</Link> : CardInner}
+      {tooltip && showTip && (
+        <div className="absolute left-3 right-3 top-11 p-3 rounded-lg bg-gray-950/95 border border-white/10 shadow-2xl text-[11px] text-gray-300 leading-snug z-50 pointer-events-none backdrop-blur-sm">
+          {tooltip}
+        </div>
+      )}
+    </div>
+  );
 }
