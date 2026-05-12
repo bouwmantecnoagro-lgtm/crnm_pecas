@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
-import { AlertCircle, ChevronRight, Clock, MapPin, ReceiptText, Tractor, TrendingUp, Users, MessageCircle, X, Loader2, Database, Zap } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { AlertCircle, ChevronRight, MapPin, ReceiptText, Tractor, TrendingUp, Users, X, Loader2, Database, Zap, Filter, Award, AlertTriangle, RotateCcw, Hourglass } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, Cell, LabelList } from 'recharts';
 import Link from 'next/link';
 import Cliente360Modal from '@/components/Cliente360Modal';
@@ -10,104 +10,234 @@ import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
 
 import { useData } from '@/contexts/DataContext';
 
+// Status oficial vindo do ERP (coluna STATUS dos orçamentos): ABERTO | VENCIDO | CANCELADO | FATURADO
+// Win Rate por decisão de negócio (2026-05-12): FATURADO / (FATURADO+CANCELADO+VENCIDO).
+// VENCIDO conta como perda assumida (orçamento expirou sem fechar).
+const getStatusOrc = (o: any) => String(o.Status || o.STATUS || '').toUpperCase().trim();
+const STATUS_FECHADOS = new Set(['FATURADO', 'CANCELADO', 'VENCIDO']);
+
+const PERIODOS = [
+  { dias: 30, label: '30 dias' },
+  { dias: 90, label: '90 dias' },
+  { dias: 180, label: '6 meses' },
+  { dias: 365, label: '12 meses' },
+  { dias: 0, label: 'Todo período' },
+];
+
 export default function Dashboard() {
   const { clientes, orcamentos, maquinas, loading, ultimaSync, acoes, refreshAcoes } = useData();
   const [vendedorSelecionado, setVendedorSelecionado] = useState<any>(null);
   const [clienteModal, setClienteModal] = useState<{codigo: string, loja: string} | null>(null);
   const [concluirAcao, setConcluirAcao] = useState<any>(null);
 
-  // States para Filtros do Cross-Sell
+  // === Filtros globais do dashboard ===
+  const [fVendedor, setFVendedor] = useState('');
+  const [fFilial, setFFilial] = useState('');
+  const [fPeriodoDias, setFPeriodoDias] = useState(90);
+
+  // Filtros adicionais (refinamento dentro do bloco Cross-Sell)
   const [crossFilial, setCrossFilial] = useState('');
   const [crossFabricante, setCrossFabricante] = useState('');
   const [crossModelo, setCrossModelo] = useState('');
   const [crossVendedor, setCrossVendedor] = useState('');
 
-  const clientesEmRisco = useMemo(() => clientes.filter(c => (c.DIAS_SEM_COMPRA || 0) > 90), [clientes]);
-  const totalAtivos = useMemo(() => clientes.filter(c => c.STATUS_BASE === 'ATIVO').length, [clientes]);
+  // === Opções dos combos de filtro ===
+  const vendedoresDisponiveis = useMemo(() => {
+    const map = new Map<string, string>();
+    clientes.forEach((c: any) => {
+      if (c.VENDEDOR_RESP && c.NOME_VENDEDOR_RESP) map.set(String(c.VENDEDOR_RESP), String(c.NOME_VENDEDOR_RESP).trim());
+    });
+    orcamentos.forEach((o: any) => {
+      if (o.ORC_CODIGO_VENDEDOR && o.ORC_NOME_VENDEDOR) map.set(String(o.ORC_CODIGO_VENDEDOR), String(o.ORC_NOME_VENDEDOR).trim());
+    });
+    return Array.from(map.entries()).map(([codigo, nome]) => ({ codigo, nome })).sort((a, b) => a.nome.localeCompare(b.nome));
+  }, [clientes, orcamentos]);
 
-  // Cálculos baseados no novo campo STATUS
-  const orcAbertos = useMemo(() => orcamentos.filter(o => !o.STATUS || String(o.STATUS).toUpperCase() === 'ABERTO' || String(o.STATUS).toUpperCase() === 'EM ABERTO'), [orcamentos]);
-  const orcGanhos = useMemo(() => orcamentos.filter(o => String(o.STATUS).toUpperCase() === 'GANHO' || String(o.STATUS).toUpperCase() === 'FATURADO'), [orcamentos]);
-  const orcPerdidos = useMemo(() => orcamentos.filter(o => String(o.STATUS).toUpperCase() === 'PERDIDO' || String(o.STATUS).toUpperCase() === 'CANCELADO'), [orcamentos]);
+  const filiaisDisponiveis = useMemo(() => {
+    const set = new Set<string>();
+    clientes.forEach((c: any) => { if (c.FILIAL) set.add(String(c.FILIAL)); });
+    orcamentos.forEach((o: any) => { if (o.FILIAL_ORC) set.add(String(o.FILIAL_ORC)); });
+    maquinas.forEach((m: any) => { if (m.FILIAL) set.add(String(m.FILIAL)); });
+    return Array.from(set).sort();
+  }, [clientes, orcamentos, maquinas]);
 
-  const totalAbertos = useMemo(() => orcAbertos.reduce((acc, curr) => acc + (curr.ORC_VALOR_TOTAL || 0), 0), [orcAbertos]);
-  const totalGanhos = useMemo(() => orcGanhos.reduce((acc, curr) => acc + (curr.ORC_VALOR_TOTAL || 0), 0), [orcGanhos]);
-  const totalPerdidos = useMemo(() => orcPerdidos.reduce((acc, curr) => acc + (curr.ORC_VALOR_TOTAL || 0), 0), [orcPerdidos]);
-  
-  const totalConcluidos = totalGanhos + totalPerdidos; // Simplified since we already calculate the lengths below if needed, wait, the original code had: totalConcluidos = orcGanhos.length + orcPerdidos.length;
-  const winRate = useMemo(() => {
-    const total = orcGanhos.length + orcPerdidos.length;
-    return total > 0 ? ((orcGanhos.length / total) * 100).toFixed(1) : '0.0';
-  }, [orcGanhos.length, orcPerdidos.length]);
+  // Nome do vendedor selecionado — necessário para entidades que só têm o nome (máquinas)
+  const nomeVendedorSelecionado = useMemo(() => {
+    if (!fVendedor) return '';
+    return vendedoresDisponiveis.find(v => v.codigo === fVendedor)?.nome || '';
+  }, [fVendedor, vendedoresDisponiveis]);
 
-  // Agrupar Orçamentos por Vendedor
-  const rankingVendedores = useMemo(() => Object.values(orcamentos.reduce((acc: any, curr) => {
-    const vendedor = (curr.ORC_NOME_VENDEDOR || 'NÃO IDENTIFICADO').trim();
-    if (!acc[vendedor]) {
-      acc[vendedor] = { nome: vendedor, total: 0, quantidade: 0, orcamentos: [] as any[] };
+  // Limite de data com base no período selecionado
+  const dataLimite = useMemo(() => {
+    if (fPeriodoDias === 0) return null;
+    const d = new Date();
+    d.setDate(d.getDate() - fPeriodoDias);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, [fPeriodoDias]);
+
+  // === Aplicação dos filtros globais a cada coleção ===
+  // Clientes: filtro de período não se aplica (carteira é estado atual)
+  const clientesFiltrados = useMemo(() => clientes.filter((c: any) => {
+    if (fVendedor && String(c.VENDEDOR_RESP || '') !== fVendedor) return false;
+    if (fFilial && String(c.FILIAL || '') !== fFilial) return false;
+    return true;
+  }), [clientes, fVendedor, fFilial]);
+
+  const orcamentosFiltrados = useMemo(() => orcamentos.filter((o: any) => {
+    if (fVendedor && String(o.ORC_CODIGO_VENDEDOR || '') !== fVendedor) return false;
+    if (fFilial && String(o.FILIAL_ORC || '') !== fFilial) return false;
+    if (dataLimite && o.ORC_DATA_EMISSAO_ORCAMENTO) {
+      const d = new Date(o.ORC_DATA_EMISSAO_ORCAMENTO);
+      if (!isNaN(d.getTime()) && d < dataLimite) return false;
     }
+    return true;
+  }), [orcamentos, fVendedor, fFilial, dataLimite]);
+
+  const maquinasFiltradas = useMemo(() => maquinas.filter((m: any) => {
+    if (nomeVendedorSelecionado) {
+      const nm = String(m.NOME_VENDEDOR || '').trim().toUpperCase();
+      if (nm !== nomeVendedorSelecionado.toUpperCase()) return false;
+    }
+    if (fFilial && String(m.FILIAL || '') !== fFilial) return false;
+    if (dataLimite && m.EMISSAO) {
+      const dt = new Date(m.EMISSAO.toString().includes('Date') ? parseInt(m.EMISSAO.match(/\d+/)![0]) : m.EMISSAO);
+      if (!isNaN(dt.getTime()) && dt < dataLimite) return false;
+    }
+    return true;
+  }), [maquinas, nomeVendedorSelecionado, fFilial, dataLimite]);
+
+  // Para ações: filial vem do cliente vinculado (a tabela crm_acoes não tem filial)
+  const clienteFilialIdx = useMemo(() => {
+    const idx = new Map<string, string>();
+    clientes.forEach((c: any) => idx.set(`${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`, String(c.FILIAL || '')));
+    return idx;
+  }, [clientes]);
+
+  const acoesFiltradas = useMemo(() => acoes.filter((a: any) => {
+    if (fVendedor && String(a.vendedor_responsavel || '') !== fVendedor) return false;
+    if (fFilial && a.codigo_cliente) {
+      const fil = clienteFilialIdx.get(`${a.codigo_cliente}_${a.loja_cliente}`);
+      if (fil && fil !== fFilial) return false;
+    }
+    return true;
+  }), [acoes, fVendedor, fFilial, clienteFilialIdx]);
+
+  // === Cálculos derivados (sobre os filtrados) ===
+  const clientesEmRisco = useMemo(() => clientesFiltrados.filter((c: any) => (c.DIAS_SEM_COMPRA || 0) > 90), [clientesFiltrados]);
+  const totalAtivos = useMemo(() => clientesFiltrados.filter((c: any) => c.STATUS_BASE === 'ATIVO').length, [clientesFiltrados]);
+
+  // Buckets pela nova coluna STATUS
+  const orcAbertos = useMemo(() => orcamentosFiltrados.filter((o: any) => { const s = getStatusOrc(o); return !s || s === 'ABERTO' || s === 'EM ABERTO'; }), [orcamentosFiltrados]);
+  const orcFaturados = useMemo(() => orcamentosFiltrados.filter((o: any) => getStatusOrc(o) === 'FATURADO'), [orcamentosFiltrados]);
+  const orcCancelados = useMemo(() => orcamentosFiltrados.filter((o: any) => getStatusOrc(o) === 'CANCELADO'), [orcamentosFiltrados]);
+  const orcVencidos = useMemo(() => orcamentosFiltrados.filter((o: any) => getStatusOrc(o) === 'VENCIDO'), [orcamentosFiltrados]);
+
+  const totalAbertos = useMemo(() => orcAbertos.reduce((acc, c) => acc + (c.ORC_VALOR_TOTAL || 0), 0), [orcAbertos]);
+  const totalFaturado = useMemo(() => orcFaturados.reduce((acc, c) => acc + (c.ORC_VALOR_TOTAL || 0), 0), [orcFaturados]);
+  const totalCancelado = useMemo(() => orcCancelados.reduce((acc, c) => acc + (c.ORC_VALOR_TOTAL || 0), 0), [orcCancelados]);
+  const totalVencido = useMemo(() => orcVencidos.reduce((acc, c) => acc + (c.ORC_VALOR_TOTAL || 0), 0), [orcVencidos]);
+
+  const fechadosQtd = orcFaturados.length + orcCancelados.length + orcVencidos.length;
+  const fechadosValor = totalFaturado + totalCancelado + totalVencido;
+
+  const winRateQtd = fechadosQtd > 0 ? (orcFaturados.length / fechadosQtd) * 100 : 0;
+  const winRateValor = fechadosValor > 0 ? (totalFaturado / fechadosValor) * 100 : 0;
+  const taxaCancelamento = fechadosQtd > 0 ? (orcCancelados.length / fechadosQtd) * 100 : 0;
+  const taxaVencimento = fechadosQtd > 0 ? (orcVencidos.length / fechadosQtd) * 100 : 0;
+
+  // Ranking de Eficácia por Vendedor (amostra mínima 3 fechados para evitar ruído)
+  const rankingEficacia = useMemo(() => {
+    const map = new Map<string, { nome: string; faturados: number; cancelados: number; vencidos: number; valorFat: number; valorFechado: number }>();
+    orcamentosFiltrados.forEach((o: any) => {
+      const s = getStatusOrc(o);
+      if (!STATUS_FECHADOS.has(s)) return;
+      const nome = (o.ORC_NOME_VENDEDOR || 'NÃO IDENTIFICADO').trim();
+      if (!map.has(nome)) map.set(nome, { nome, faturados: 0, cancelados: 0, vencidos: 0, valorFat: 0, valorFechado: 0 });
+      const r = map.get(nome)!;
+      const v = o.ORC_VALOR_TOTAL || 0;
+      r.valorFechado += v;
+      if (s === 'FATURADO') { r.faturados++; r.valorFat += v; }
+      else if (s === 'CANCELADO') r.cancelados++;
+      else if (s === 'VENCIDO') r.vencidos++;
+    });
+    return Array.from(map.values())
+      .map(r => {
+        const total = r.faturados + r.cancelados + r.vencidos;
+        return {
+          ...r,
+          totalFechados: total,
+          winRateQtd: total > 0 ? (r.faturados / total) * 100 : 0,
+          winRateValor: r.valorFechado > 0 ? (r.valorFat / r.valorFechado) * 100 : 0,
+        };
+      })
+      .filter(r => r.totalFechados >= 3)
+      .sort((a, b) => b.winRateQtd - a.winRateQtd)
+      .slice(0, 10);
+  }, [orcamentosFiltrados]);
+
+  // Ranking de Volume (todos os orçamentos, não só fechados) — agora sobre filtrados
+  const rankingVendedores = useMemo(() => Object.values(orcamentosFiltrados.reduce((acc: any, curr: any) => {
+    const vendedor = (curr.ORC_NOME_VENDEDOR || 'NÃO IDENTIFICADO').trim();
+    if (!acc[vendedor]) acc[vendedor] = { nome: vendedor, total: 0, quantidade: 0, orcamentos: [] as any[] };
     acc[vendedor].total += (curr.ORC_VALOR_TOTAL || 0);
     acc[vendedor].quantidade += 1;
     acc[vendedor].orcamentos.push(curr);
     return acc;
   }, {} as Record<string, any>))
-  .sort((a: any, b: any) => b.total - a.total).slice(0, 8) as any[], [orcamentos]);
+  .sort((a: any, b: any) => b.total - a.total).slice(0, 8) as any[], [orcamentosFiltrados]);
 
-  // Gráfico: Funil Orçamentos (Emissão vs Hoje)
+  // Funil de orçamentos abertos por idade
   const funilOrcamentos = useMemo(() => {
-    const funilOrcamentosRaw = [
-      { name: 'Recentes (0-7d)', maxD: 7, valor: 0, color: '#34d399' }, 
-      { name: 'Mornos (8-15d)', maxD: 15, valor: 0, color: '#fbbf24' },        
-      { name: 'Esfriando (16-30d)', maxD: 30, valor: 0, color: '#fb923c' },    
-      { name: 'Congelados (>30d)', maxD: 9999, valor: 0, color: '#ef4444' }, 
+    const raw = [
+      { name: 'Recentes (0-7d)', maxD: 7, valor: 0, color: '#34d399' },
+      { name: 'Mornos (8-15d)', maxD: 15, valor: 0, color: '#fbbf24' },
+      { name: 'Esfriando (16-30d)', maxD: 30, valor: 0, color: '#fb923c' },
+      { name: 'Congelados (>30d)', maxD: 9999, valor: 0, color: '#ef4444' },
     ];
-    orcamentos.forEach(o => {
-      if(!o.ORC_DATA_EMISSAO_ORCAMENTO) return;
+    orcAbertos.forEach((o: any) => {
+      if (!o.ORC_DATA_EMISSAO_ORCAMENTO) return;
       const dias = Math.floor((new Date().getTime() - new Date(o.ORC_DATA_EMISSAO_ORCAMENTO).getTime()) / (1000 * 60 * 60 * 24));
-      const bucket = funilOrcamentosRaw.find(b => dias <= b.maxD) || funilOrcamentosRaw[3];
+      const bucket = raw.find(b => dias <= b.maxD) || raw[3];
       bucket.valor += (o.ORC_VALOR_TOTAL || 0);
     });
-    return funilOrcamentosRaw;
-  }, [orcamentos]);
+    return raw;
+  }, [orcAbertos]);
 
-  // Gráfico: Churn Data (Dias inativos vs Qtde Clientes)
+  // Churn por faixa
   const churnData = useMemo(() => {
-    const churnDataRaw = [
+    const raw = [
       { name: 'Ativos', min: 0, max: 90, quantidade: 0 },
       { name: '90-180d', min: 91, max: 180, quantidade: 0 },
       { name: '6m-1ano', min: 181, max: 365, quantidade: 0 },
       { name: '1-2 anos', min: 366, max: 730, quantidade: 0 },
       { name: '> 2 anos', min: 731, max: 99999, quantidade: 0 },
     ];
-    clientes.forEach(c => {
-      if(c.DIAS_SEM_COMPRA == null) return;
-      const bucket = churnDataRaw.find(b => c.DIAS_SEM_COMPRA >= b.min && c.DIAS_SEM_COMPRA <= b.max) || churnDataRaw[4];
+    clientesFiltrados.forEach((c: any) => {
+      if (c.DIAS_SEM_COMPRA == null) return;
+      const bucket = raw.find(b => c.DIAS_SEM_COMPRA >= b.min && c.DIAS_SEM_COMPRA <= b.max) || raw[4];
       bucket.quantidade += 1;
     });
-    return churnDataRaw;
-  }, [clientes]);
+    return raw;
+  }, [clientesFiltrados]);
 
-  // LÓGICA DE CROSS-SELL (Máquinas Faturadas nos últimos 90 dias)
-  const maquinasRecentesTotal = useMemo(() => maquinas.map(m => {
+  // Cross-sell: usa o período global como janela em vez do antigo hardcoded 90 dias
+  const periodoCrossDias = fPeriodoDias > 0 ? fPeriodoDias : 90;
+  const maquinasRecentesTotal = useMemo(() => maquinasFiltradas.map((m: any) => {
     let diasAge = 9999;
     if (m.EMISSAO) {
-      // Tenta fazer o parse da data EMISSAO
       const dt = new Date(m.EMISSAO.toString().includes('Date') ? parseInt(m.EMISSAO.match(/\d+/)![0]) : m.EMISSAO);
-      if (!isNaN(dt.getTime())) {
-        diasAge = Math.floor((new Date().getTime() - dt.getTime()) / (1000 * 60 * 60 * 24));
-      }
+      if (!isNaN(dt.getTime())) diasAge = Math.floor((new Date().getTime() - dt.getTime()) / (1000 * 60 * 60 * 24));
     }
     return { ...m, diasAposFaturamento: diasAge };
-  }).filter(m => m.diasAposFaturamento <= 90).sort((a,b) => a.diasAposFaturamento - b.diasAposFaturamento), [maquinas]);
+  }).filter((m: any) => m.diasAposFaturamento <= periodoCrossDias).sort((a: any, b: any) => a.diasAposFaturamento - b.diasAposFaturamento), [maquinasFiltradas, periodoCrossDias]);
 
-  // Opções para os combos
-  const crossFiliasDisponiveis = useMemo(() => Array.from(new Set(maquinasRecentesTotal.map(m => String(m.FILIAL || '')).filter(Boolean))), [maquinasRecentesTotal]);
-  const crossFabricantesDisponiveis = useMemo(() => Array.from(new Set(maquinasRecentesTotal.map(m => String(m.FABRICANTE || m.marca || '').trim()).filter(Boolean))), [maquinasRecentesTotal]);
-  const crossModelosDisponiveis = useMemo(() => Array.from(new Set(maquinasRecentesTotal.map(m => String(m.MODELO || '').trim()).filter(Boolean))), [maquinasRecentesTotal]);
-  const crossVendedoresDisponiveis = useMemo(() => Array.from(new Set(maquinasRecentesTotal.map(m => String(m.NOME_VENDEDOR || '').trim()).filter(Boolean))).sort(), [maquinasRecentesTotal]);
+  const crossFiliasDisponiveis = useMemo(() => Array.from(new Set(maquinasRecentesTotal.map((m: any) => String(m.FILIAL || '')).filter(Boolean))), [maquinasRecentesTotal]);
+  const crossFabricantesDisponiveis = useMemo(() => Array.from(new Set(maquinasRecentesTotal.map((m: any) => String(m.FABRICANTE || m.marca || '').trim()).filter(Boolean))), [maquinasRecentesTotal]);
+  const crossModelosDisponiveis = useMemo(() => Array.from(new Set(maquinasRecentesTotal.map((m: any) => String(m.MODELO || '').trim()).filter(Boolean))), [maquinasRecentesTotal]);
+  const crossVendedoresDisponiveis = useMemo(() => Array.from(new Set(maquinasRecentesTotal.map((m: any) => String(m.NOME_VENDEDOR || '').trim()).filter(Boolean))).sort(), [maquinasRecentesTotal]);
 
-  // Aplicar Filtros ao Cross-Sell
-  const maquinasRecentesFiltradas = useMemo(() => maquinasRecentesTotal.filter(m => {
+  const maquinasRecentesFiltradas = useMemo(() => maquinasRecentesTotal.filter((m: any) => {
     if (crossFilial && String(m.FILIAL) !== crossFilial) return false;
     if (crossFabricante && String(m.FABRICANTE || m.marca || '').trim() !== crossFabricante) return false;
     if (crossModelo && String(m.MODELO || '').trim() !== crossModelo) return false;
@@ -115,8 +245,25 @@ export default function Dashboard() {
     return true;
   }), [maquinasRecentesTotal, crossFilial, crossFabricante, crossModelo, crossVendedor]);
 
-  // Estado vazio
+  // Índice de máquinas por cliente para a lista de reativação
+  const maquinasPorCliente = useMemo(() => {
+    const idx = new Map<string, any[]>();
+    for (const m of maquinas) {
+      const key = `${m.COD_CLIENTE || m.CODIGO_CLIENTE}_${m.LOJA_CLIENTE}`;
+      if (!idx.has(key)) idx.set(key, []);
+      idx.get(key)!.push(m);
+    }
+    return idx;
+  }, [maquinas]);
+
   const semDados = clientes.length === 0 && orcamentos.length === 0 && maquinas.length === 0;
+  const filtroAtivo = !!(fVendedor || fFilial || fPeriodoDias !== 90);
+
+  function limparFiltros() {
+    setFVendedor('');
+    setFFilial('');
+    setFPeriodoDias(90);
+  }
 
   if (loading) {
     return (
@@ -147,11 +294,14 @@ export default function Dashboard() {
     );
   }
 
+  const periodoLabel = PERIODOS.find(p => p.dias === fPeriodoDias)?.label || `${fPeriodoDias}d`;
+  const subPeriodoTxt = fPeriodoDias === 0 ? 'todo período' : `últimos ${periodoLabel}`;
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      
+
       {/* HEADER */}
-      <header className="flex justify-between items-end mb-8">
+      <header className="flex justify-between items-end mb-6">
         <div>
           <h1 className="text-3xl font-light tracking-tight text-white mb-2">Visão Geral</h1>
           <p className="text-gray-400">Aqui está o pulso das suas vendas preditivas hoje.</p>
@@ -167,11 +317,47 @@ export default function Dashboard() {
         </div>
       </header>
 
-      {/* CARDS DE TOPO */}
+      {/* BARRA DE FILTROS GLOBAIS */}
+      <div className={`glass-panel p-3 flex flex-wrap items-center gap-3 border ${filtroAtivo ? 'border-sky-500/30 bg-sky-500/[0.02]' : 'border-white/5'}`}>
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400 pr-2 border-r border-white/10">
+          <Filter size={14} className={filtroAtivo ? 'text-sky-400' : 'text-gray-500'} />
+          Filtros
+        </div>
+        <select
+          className="bg-black/30 border border-white/10 text-sm rounded px-3 py-1.5 text-gray-200 focus:outline-none focus:border-sky-500 min-w-[200px]"
+          value={fVendedor}
+          onChange={e => setFVendedor(e.target.value)}
+        >
+          <option value="">Todos os vendedores</option>
+          {vendedoresDisponiveis.map(v => <option key={v.codigo} value={v.codigo}>{v.nome}</option>)}
+        </select>
+        <select
+          className="bg-black/30 border border-white/10 text-sm rounded px-3 py-1.5 text-gray-200 focus:outline-none focus:border-sky-500"
+          value={fFilial}
+          onChange={e => setFFilial(e.target.value)}
+        >
+          <option value="">Todas as lojas</option>
+          {filiaisDisponiveis.map(f => <option key={f} value={f}>Loja {f}</option>)}
+        </select>
+        <select
+          className="bg-black/30 border border-white/10 text-sm rounded px-3 py-1.5 text-gray-200 focus:outline-none focus:border-sky-500"
+          value={fPeriodoDias}
+          onChange={e => setFPeriodoDias(Number(e.target.value))}
+        >
+          {PERIODOS.map(p => <option key={p.dias} value={p.dias}>{p.label}</option>)}
+        </select>
+        {filtroAtivo && (
+          <button onClick={limparFiltros} className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 px-2 py-1.5 transition-colors ml-auto">
+            <RotateCcw size={12} /> Limpar filtros
+          </button>
+        )}
+      </div>
+
+      {/* CARDS DE OPERAÇÃO */}
       {(() => {
         const hoje = new Date();
         hoje.setHours(0, 0, 0, 0);
-        const acoesAtivas = acoes.filter((a: any) => ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'].includes(a.status));
+        const acoesAtivas = acoesFiltradas.filter((a: any) => ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'].includes(a.status));
         const acoesVencidas = acoesAtivas.filter((a: any) => {
           if (!a.data_vencimento) return false;
           return new Date(a.data_vencimento + 'T00:00:00') < hoje;
@@ -185,50 +371,89 @@ export default function Dashboard() {
         return (
           <>
             <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
-              <KpiCard 
-                title="Total de Clientes" 
-                value={clientes.length.toString()} 
-                subtitle={`${totalAtivos} ativos • ${clientes.length - totalAtivos} bloqueados`}
+              <KpiCard
+                title="Total de Clientes"
+                value={clientesFiltrados.length.toString()}
+                subtitle={`${totalAtivos} ativos • ${clientesFiltrados.length - totalAtivos} bloqueados`}
                 icon={<Users className="text-sky-400" />}
                 accentColor="sky"
               />
-              <KpiCard 
-                title="Risco de Evasão (Churn)" 
-                value={clientesEmRisco.length.toString()} 
+              <KpiCard
+                title="Risco de Evasão (Churn)"
+                value={clientesEmRisco.length.toString()}
                 subtitle="Clientes há >90 dias sem compra"
                 icon={<AlertCircle className="text-red-400" />}
                 accentColor="red"
               />
-              <KpiCard 
-                title="Oportunidades Cross-Sell" 
-                value={maquinasRecentesTotal.length.toString()} 
-                subtitle="Equipamentos vendidos < 90 dias"
+              <KpiCard
+                title="Oportunidades Cross-Sell"
+                value={maquinasRecentesTotal.length.toString()}
+                subtitle={`Equipamentos vendidos nos ${subPeriodoTxt}`}
                 icon={<Tractor className="text-amber-400" />}
                 accentColor="amber"
                 href="/maquinas"
               />
-              <KpiCard 
-                title="Orçamentos Abertos" 
-                value={`R$ ${totalAbertos.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`} 
+              <KpiCard
+                title="Orçamentos Abertos"
+                value={`R$ ${totalAbertos.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`}
                 subtitle={`${orcAbertos.length} orçamentos pendentes`}
                 icon={<ReceiptText className="text-blue-400" />}
                 accentColor="sky"
                 href="/orcamentos"
               />
-              <KpiCard 
-                title="Taxa de Conversão (Win Rate)" 
-                value={`${winRate}%`} 
-                subtitle={`${orcGanhos.length} ganhos • ${orcPerdidos.length} perdidos`}
-                icon={<TrendingUp className="text-emerald-400" />}
-                accentColor="emerald"
-              />
-              <KpiCard 
-                title="Ações Pendentes" 
-                value={acoesAtivas.length.toString()} 
+              <KpiCard
+                title="Ações Pendentes"
+                value={acoesAtivas.length.toString()}
                 subtitle={`${acoesVencidas.length} vencidas • ${acoesHoje.length} para hoje`}
                 icon={<Zap className="text-violet-400" />}
                 accentColor="violet"
                 href="/acoes"
+              />
+            </div>
+
+            {/* TAXAS DE CONVERSÃO */}
+            <div className="flex items-center gap-3 pt-2 pb-1">
+              <Award size={16} className="text-emerald-400" />
+              <h2 className="text-sm font-bold uppercase tracking-widest text-gray-300">Taxas de Conversão</h2>
+              <span className="text-xs text-gray-500">— orçamentos fechados ({subPeriodoTxt})</span>
+              <div className="flex-1 border-t border-white/5 ml-2" />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
+              <KpiCard
+                title="Win Rate (Qtd)"
+                value={`${winRateQtd.toFixed(1)}%`}
+                subtitle={`${orcFaturados.length} faturados de ${fechadosQtd} fechados`}
+                icon={<TrendingUp className="text-emerald-400" />}
+                accentColor="emerald"
+              />
+              <KpiCard
+                title="Win Rate (R$)"
+                value={`${winRateValor.toFixed(1)}%`}
+                subtitle={`R$ ${(totalFaturado/1000).toFixed(0)}k de R$ ${(fechadosValor/1000).toFixed(0)}k`}
+                icon={<TrendingUp className="text-emerald-400" />}
+                accentColor="emerald"
+              />
+              <KpiCard
+                title="Taxa de Cancelamento"
+                value={`${taxaCancelamento.toFixed(1)}%`}
+                subtitle={`${orcCancelados.length} cancelados`}
+                icon={<X className="text-red-400" />}
+                accentColor="red"
+              />
+              <KpiCard
+                title="Taxa de Vencimento"
+                value={`${taxaVencimento.toFixed(1)}%`}
+                subtitle={`${orcVencidos.length} orçamentos expiraram`}
+                icon={<Hourglass className="text-amber-400" />}
+                accentColor="amber"
+              />
+              <KpiCard
+                title="R$ Deixado na Mesa"
+                value={`R$ ${totalVencido.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`}
+                subtitle="Volume em orçamentos vencidos"
+                icon={<AlertTriangle className="text-amber-400" />}
+                accentColor="amber"
               />
             </div>
 
@@ -251,11 +476,11 @@ export default function Dashboard() {
                 </div>
                 <div className="space-y-2">
                   {acoesUrgentes.map((a: any) => (
-                    <AcaoCard 
-                      key={a.id} 
-                      acao={a} 
-                      compact 
-                      onConcluir={() => setConcluirAcao(a)} 
+                    <AcaoCard
+                      key={a.id}
+                      acao={a}
+                      compact
+                      onConcluir={() => setConcluirAcao(a)}
                       onClickCliente={a.codigo_cliente ? (cod, loja) => setClienteModal({codigo: cod, loja}) : undefined}
                     />
                   ))}
@@ -267,45 +492,45 @@ export default function Dashboard() {
       })()}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-2">
-        
-        {/* LISTA DE OPORTUNIDADES CROSS-SELL RECENTES (MOVED TO TOP) */}
+
+        {/* CROSS-SELL RECENTE */}
         <div className="lg:col-span-2 glass-panel p-6 flex flex-col border border-amber-500/20 bg-amber-950/10 shadow-[0_0_30px_rgba(245,158,11,0.05)]">
           <div className="flex flex-col mb-6">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                <Tractor size={18} className="text-amber-400" /> 
+                <Tractor size={18} className="text-amber-400" />
                 Máquinas vendidas recentemente
               </h2>
               <Link href="/maquinas" className="text-sm text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors">
                 Trabalhar Leads <ChevronRight size={14} />
               </Link>
             </div>
-            
+
             <div className="flex flex-wrap gap-2">
-               <select className="bg-black/30 border border-amber-500/20 text-xs rounded px-2 py-1.5 text-gray-300 focus:outline-none focus:border-amber-500" value={crossFilial} onChange={e => setCrossFilial(e.target.value)}>
-                 <option value="">Filial Inicial (Todas)</option>
-                 {crossFiliasDisponiveis.map((f:any) => <option key={f} value={f}>Filial {f}</option>)}
-               </select>
-               <select className="bg-black/30 border border-amber-500/20 text-xs rounded px-2 py-1.5 text-gray-300 focus:outline-none focus:border-amber-500" value={crossFabricante} onChange={e => setCrossFabricante(e.target.value)}>
-                 <option value="">Fabricante (Todos)</option>
-                 {crossFabricantesDisponiveis.map((f:any) => <option key={f} value={f}>{f}</option>)}
-               </select>
-               <select className="bg-black/30 border border-amber-500/20 text-xs rounded px-2 py-1.5 text-gray-300 focus:outline-none focus:border-amber-500" value={crossModelo} onChange={e => setCrossModelo(e.target.value)}>
-                 <option value="">Modelo (Todos)</option>
-                 {crossModelosDisponiveis.map((m:any) => <option key={m} value={m}>{m}</option>)}
-               </select>
-               <select className="bg-black/30 border border-amber-500/20 text-xs rounded px-2 py-1.5 text-gray-300 focus:outline-none focus:border-amber-500" value={crossVendedor} onChange={e => setCrossVendedor(e.target.value)}>
-                 <option value="">Vendedor (Todos)</option>
-                 {crossVendedoresDisponiveis.map((v:any) => <option key={v} value={v}>{v}</option>)}
-               </select>
-               {(crossFilial || crossFabricante || crossModelo || crossVendedor) && (
-                  <button onClick={() => {setCrossFilial(''); setCrossFabricante(''); setCrossModelo(''); setCrossVendedor('');}} className="text-red-400 text-xs hover:text-red-300 flex items-center gap-1 px-2">
-                    <X size={12}/> Limpar Filtro
-                  </button>
-               )}
+              <select className="bg-black/30 border border-amber-500/20 text-xs rounded px-2 py-1.5 text-gray-300 focus:outline-none focus:border-amber-500" value={crossFilial} onChange={e => setCrossFilial(e.target.value)}>
+                <option value="">Loja (Todas)</option>
+                {crossFiliasDisponiveis.map((f:any) => <option key={f} value={f}>Loja {f}</option>)}
+              </select>
+              <select className="bg-black/30 border border-amber-500/20 text-xs rounded px-2 py-1.5 text-gray-300 focus:outline-none focus:border-amber-500" value={crossFabricante} onChange={e => setCrossFabricante(e.target.value)}>
+                <option value="">Fabricante (Todos)</option>
+                {crossFabricantesDisponiveis.map((f:any) => <option key={f} value={f}>{f}</option>)}
+              </select>
+              <select className="bg-black/30 border border-amber-500/20 text-xs rounded px-2 py-1.5 text-gray-300 focus:outline-none focus:border-amber-500" value={crossModelo} onChange={e => setCrossModelo(e.target.value)}>
+                <option value="">Modelo (Todos)</option>
+                {crossModelosDisponiveis.map((m:any) => <option key={m} value={m}>{m}</option>)}
+              </select>
+              <select className="bg-black/30 border border-amber-500/20 text-xs rounded px-2 py-1.5 text-gray-300 focus:outline-none focus:border-amber-500" value={crossVendedor} onChange={e => setCrossVendedor(e.target.value)}>
+                <option value="">Vendedor (Todos)</option>
+                {crossVendedoresDisponiveis.map((v:any) => <option key={v} value={v}>{v}</option>)}
+              </select>
+              {(crossFilial || crossFabricante || crossModelo || crossVendedor) && (
+                <button onClick={() => {setCrossFilial(''); setCrossFabricante(''); setCrossModelo(''); setCrossVendedor('');}} className="text-red-400 text-xs hover:text-red-300 flex items-center gap-1 px-2">
+                  <X size={12}/> Limpar Filtro
+                </button>
+              )}
             </div>
           </div>
-          
+
           <div className="space-y-2 max-h-[350px] overflow-y-auto custom-scrollbar pr-2">
             {maquinasRecentesFiltradas.slice(0, 20).map((m) => (
               <div key={m.id} onClick={() => setClienteModal({codigo: m.COD_CLIENTE || m.CODIGO_CLIENTE, loja: m.LOJA_CLIENTE})} className="group glass-panel !bg-amber-500/[0.02] hover:!bg-amber-500/[0.08] p-3.5 transition-all flex justify-between items-center cursor-pointer border border-transparent hover:border-amber-500/20">
@@ -331,14 +556,14 @@ export default function Dashboard() {
               </div>
             ))}
             {maquinasRecentesFiltradas.length === 0 && (
-               <div className="text-sm text-gray-500 text-center py-8 bg-black/20 rounded-lg">
-                 Nenhuma entrega recente nos últimos 90 dias com os filtros selecionados.
-               </div>
+              <div className="text-sm text-gray-500 text-center py-8 bg-black/20 rounded-lg">
+                Nenhuma entrega recente nos {subPeriodoTxt} com os filtros selecionados.
+              </div>
             )}
           </div>
         </div>
 
-        {/* RANKING COMERCIAL */}
+        {/* RANKING DE VOLUME */}
         <div className="glass-panel p-6 flex flex-col lg:row-span-2">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
@@ -346,13 +571,13 @@ export default function Dashboard() {
               Ranking de Vendedores
             </h2>
           </div>
-          
+
           <div className="space-y-3 flex-1">
             {rankingVendedores.map((vend: any, i: number) => (
-              <div 
-                key={i} 
+              <div
+                key={i}
                 onClick={() => setVendedorSelecionado(vend)}
-                className="border-l-2 border-amber-400/50 pl-4 py-2.5 relative group hover:bg-white/[0.02] transition-colors -ml-4 pl-8 rounded-r-lg cursor-pointer"
+                className="border-l-2 border-amber-400/50 py-2.5 relative group hover:bg-white/[0.02] transition-colors -ml-4 pl-8 rounded-r-lg cursor-pointer"
               >
                 <div className="flex justify-between items-start">
                   <div className="flex items-center gap-2">
@@ -364,63 +589,65 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="text-xs text-amber-300/70 mt-1 ml-7">
-                  {vend.quantidade} orçamento(s) aberto(s)
+                  {vend.quantidade} orçamento(s) no período
                 </div>
               </div>
             ))}
+            {rankingVendedores.length === 0 && (
+              <div className="text-sm text-gray-500 text-center py-6">Nenhum orçamento no período/filtros.</div>
+            )}
           </div>
-          
+
           <Link href="/orcamentos" className="w-full mt-6 bg-white/5 hover:bg-white/10 text-gray-300 transition-colors py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2">
             Ver Todos os Orçamentos <ChevronRight size={14} />
           </Link>
         </div>
 
-        {/* LISTA DE CLIENTES EM RISCO (MOVED TO BOTTOM) */}
+        {/* CLIENTES PARA REATIVAR */}
         <div className="lg:col-span-2 glass-panel p-6 flex flex-col">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <TrendingUp size={18} className="text-sky-400" /> 
+              <TrendingUp size={18} className="text-sky-400" />
               Resgate Imediato — Clientes para Reativar
             </h2>
             <Link href="/clientes" className="text-sm text-sky-400 hover:text-sky-300 flex items-center gap-1 transition-colors">
               Ver todos <ChevronRight size={14} />
             </Link>
           </div>
-          
+
           <div className="space-y-2 max-h-[350px] overflow-y-auto custom-scrollbar pr-2">
-            {clientes.filter(c => (c.DIAS_SEM_COMPRA || 0) > 0 && c.STATUS_BASE !== 'BLOQUEADO' && (c.DIAS_SEM_COMPRA || 0) < 365).sort((a,b) => (b.DIAS_SEM_COMPRA || 0) - (a.DIAS_SEM_COMPRA || 0)).slice(0, 12).map((c) => {
-              const ultimasMaquinas = maquinas.filter(m => (m.COD_CLIENTE === c.CODIGO_CLIENTE || m.CODIGO_CLIENTE === c.CODIGO_CLIENTE) && String(m.LOJA_CLIENTE) === String(c.LOJA_CLIENTE))
-                                              .sort((a, b) => new Date(b.EMISSAO || 0).getTime() - new Date(a.EMISSAO || 0).getTime())
-                                              .slice(0, 1);
+            {clientesFiltrados.filter(c => (c.DIAS_SEM_COMPRA || 0) > 0 && c.STATUS_BASE !== 'BLOQUEADO' && (c.DIAS_SEM_COMPRA || 0) < 365).sort((a,b) => (b.DIAS_SEM_COMPRA || 0) - (a.DIAS_SEM_COMPRA || 0)).slice(0, 12).map((c) => {
+              const maqs = maquinasPorCliente.get(`${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`) || [];
+              const ultimasMaquinas = maqs.sort((a: any, b: any) => new Date(b.EMISSAO || 0).getTime() - new Date(a.EMISSAO || 0).getTime()).slice(0, 1);
               return (
-              <div key={c.id} onClick={() => setClienteModal({codigo: c.CODIGO_CLIENTE, loja: c.LOJA_CLIENTE})} className="group glass-panel !bg-white/[0.02] hover:!bg-white/[0.05] p-3.5 transition-all flex justify-between items-center cursor-pointer border border-transparent hover:border-white/10">
-                <div className="flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${(c.DIAS_SEM_COMPRA || 0) > 90 ? 'bg-red-500/10 text-red-400 border border-red-500/20' : (c.DIAS_SEM_COMPRA || 0) > 30 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
-                    {(c.NOME_CLIENTE || '??').substring(0,2).toUpperCase()}
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-gray-100 text-sm group-hover:text-white transition-colors">{c.NOME_CLIENTE}</h3>
-                    <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
-                      <MapPin size={10} /> {c.CIDADE}-{c.UF}
-                      {c.STATUS_BASE === 'BLOQUEADO' && <span className="ml-2 text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full">BLOQUEADO</span>}
-                    </p>
-                    {ultimasMaquinas.length > 0 && (
-                      <p className="text-[10px] text-gray-400/70 mt-1 flex flex-wrap gap-1 items-center">
-                        <Tractor size={10} className="text-amber-500/50" />
-                        <span>{ultimasMaquinas[0].FABRICANTE || ultimasMaquinas[0].marca || 'MÁQ'} {ultimasMaquinas[0].MODELO} ({ultimasMaquinas[0].EMISSAO || 's/d'})</span>
+                <div key={c.id} onClick={() => setClienteModal({codigo: c.CODIGO_CLIENTE, loja: c.LOJA_CLIENTE})} className="group glass-panel !bg-white/[0.02] hover:!bg-white/[0.05] p-3.5 transition-all flex justify-between items-center cursor-pointer border border-transparent hover:border-white/10">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${(c.DIAS_SEM_COMPRA || 0) > 90 ? 'bg-red-500/10 text-red-400 border border-red-500/20' : (c.DIAS_SEM_COMPRA || 0) > 30 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
+                      {(c.NOME_CLIENTE || '??').substring(0,2).toUpperCase()}
+                    </div>
+                    <div>
+                      <h3 className="font-medium text-gray-100 text-sm group-hover:text-white transition-colors">{c.NOME_CLIENTE}</h3>
+                      <p className="text-xs text-gray-500 flex items-center gap-1 mt-0.5">
+                        <MapPin size={10} /> {c.CIDADE}-{c.UF}
+                        {c.STATUS_BASE === 'BLOQUEADO' && <span className="ml-2 text-[9px] bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full">BLOQUEADO</span>}
                       </p>
-                    )}
+                      {ultimasMaquinas.length > 0 && (
+                        <p className="text-[10px] text-gray-400/70 mt-1 flex flex-wrap gap-1 items-center">
+                          <Tractor size={10} className="text-amber-500/50" />
+                          <span>{ultimasMaquinas[0].FABRICANTE || ultimasMaquinas[0].marca || 'MÁQ'} {ultimasMaquinas[0].MODELO} ({ultimasMaquinas[0].EMISSAO || 's/d'})</span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className={`text-sm font-semibold ${(c.DIAS_SEM_COMPRA || 0) > 90 ? 'text-red-400' : (c.DIAS_SEM_COMPRA || 0) > 30 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {c.DIAS_SEM_COMPRA || 0} dias
+                    </div>
+                    <div className="text-[10px] text-gray-500">sem comprar</div>
                   </div>
                 </div>
-                <div className="text-right">
-                  <div className={`text-sm font-semibold ${(c.DIAS_SEM_COMPRA || 0) > 90 ? 'text-red-400' : (c.DIAS_SEM_COMPRA || 0) > 30 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                    {c.DIAS_SEM_COMPRA || 0} dias
-                  </div>
-                  <div className="text-[10px] text-gray-500">sem comprar</div>
-                </div>
-              </div>
-            )})}
-            {clientes.filter(c => (c.DIAS_SEM_COMPRA || 0) > 0 && c.STATUS_BASE !== 'BLOQUEADO' && (c.DIAS_SEM_COMPRA || 0) < 365).length === 0 && (
+              )})}
+            {clientesFiltrados.filter(c => (c.DIAS_SEM_COMPRA || 0) > 0 && c.STATUS_BASE !== 'BLOQUEADO' && (c.DIAS_SEM_COMPRA || 0) < 365).length === 0 && (
               <div className="text-sm text-gray-500 text-center py-6">Nenhum cliente em risco iminente encontrado.</div>
             )}
           </div>
@@ -428,112 +655,171 @@ export default function Dashboard() {
 
       </div>
 
-        {/* GRÁFICOS VISUAIS (Recharts) */}
-        <div className="lg:col-span-3 grid grid-cols-1 lg:grid-cols-3 gap-6 mt-2">
-          {/* Gráfico 1: Funil de Orçamentos */}
-          <div className="glass-panel p-6">
-             <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-6">
-                <ReceiptText size={18} className="text-emerald-400" />
-                Funil Preditivo — Orçamentos (Tempo)
-             </h2>
-             <div className="h-[250px] w-full">
-               <ResponsiveContainer width="100%" height="100%">
-                 <BarChart data={funilOrcamentos} layout="vertical" margin={{ top: 0, right: 60, left: 40, bottom: 0 }}>
-                   <XAxis type="number" stroke="#4b5563" tickFormatter={(val) => `R$ ${(val/1000).toFixed(0)}k`} />
-                   <YAxis dataKey="name" type="category" stroke="#9ca3af" width={90} />
-                   <Tooltip 
-                     cursor={{fill: 'rgba(255,255,255,0.02)'}}
-                     contentStyle={{ backgroundColor: '#0b101a', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                     formatter={(value: any) => [`R$ ${value.toLocaleString('pt-BR')}`, 'Volume Retido']}
-                   />
-                   <Bar dataKey="valor" radius={[0, 4, 4, 0]}>
-                      {funilOrcamentos.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                      <LabelList 
-                        dataKey="valor" 
-                        position="right" 
-                        fill="#9ca3af" 
-                        fontSize={11} 
-                        formatter={(val: any) => `R$ ${(Number(val)/1000).toFixed(1)}k`} 
-                      />
-                   </Bar>
-                 </BarChart>
-               </ResponsiveContainer>
-             </div>
+      {/* RANKING DE EFICÁCIA POR VENDEDOR */}
+      <div className="glass-panel p-6 border border-emerald-500/20 bg-emerald-950/5">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+            <Award size={18} className="text-emerald-400" />
+            Ranking de Eficácia — Win Rate por Vendedor
+          </h2>
+          <span className="text-xs text-gray-500">Mínimo 3 orçamentos fechados • {subPeriodoTxt}</span>
+        </div>
+        {rankingEficacia.length === 0 ? (
+          <div className="text-sm text-gray-500 text-center py-8">
+            Ninguém com 3+ orçamentos fechados no período/filtros selecionados.
           </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead className="text-[10px] uppercase text-gray-500 tracking-wider">
+                <tr className="border-b border-white/5">
+                  <th className="py-2 font-semibold">#</th>
+                  <th className="py-2 font-semibold">Vendedor</th>
+                  <th className="py-2 text-center font-semibold">Fechados</th>
+                  <th className="py-2 text-center font-semibold text-emerald-400">Faturados</th>
+                  <th className="py-2 text-center font-semibold text-red-400">Cancel.</th>
+                  <th className="py-2 text-center font-semibold text-amber-400">Vencidos</th>
+                  <th className="py-2 text-right font-semibold">Win Rate (Qtd)</th>
+                  <th className="py-2 text-right font-semibold">Win Rate (R$)</th>
+                  <th className="py-2 text-right font-semibold">R$ Faturado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5">
+                {rankingEficacia.map((r: any, i: number) => (
+                  <tr key={r.nome} className="hover:bg-white/[0.02] transition-colors">
+                    <td className="py-3 text-amber-400/60 font-bold">#{i+1}</td>
+                    <td className="py-3 font-semibold text-gray-200 uppercase">{r.nome}</td>
+                    <td className="py-3 text-center text-gray-300">{r.totalFechados}</td>
+                    <td className="py-3 text-center text-emerald-400">{r.faturados}</td>
+                    <td className="py-3 text-center text-red-400/80">{r.cancelados}</td>
+                    <td className="py-3 text-center text-amber-400/80">{r.vencidos}</td>
+                    <td className="py-3 text-right">
+                      <span className={`font-bold ${r.winRateQtd >= 60 ? 'text-emerald-400' : r.winRateQtd >= 40 ? 'text-amber-400' : 'text-red-400'}`}>
+                        {r.winRateQtd.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="py-3 text-right">
+                      <span className={`font-bold ${r.winRateValor >= 60 ? 'text-emerald-400' : r.winRateValor >= 40 ? 'text-amber-400' : 'text-red-400'}`}>
+                        {r.winRateValor.toFixed(1)}%
+                      </span>
+                    </td>
+                    <td className="py-3 text-right text-emerald-300 font-semibold">
+                      R$ {r.valorFat.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
-          {/* Gráfico 1.5: Status (Novo) */}
-           <div className="glass-panel p-6">
-              <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-6">
-                 <TrendingUp size={18} className="text-emerald-400" />
-                 Conversão e Performance
-              </h2>
-              <div className="flex flex-col justify-center gap-6 h-[250px] w-full">
-                <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
-                   <div>
-                      <p className="text-sm text-gray-400 mb-1">Total Faturado (Ganhos)</p>
-                      <h3 className="text-2xl font-bold text-emerald-400">R$ {totalGanhos.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}</h3>
-                   </div>
-                   <div className="p-3 bg-emerald-500/10 rounded-full">
-                      <TrendingUp size={24} className="text-emerald-400" />
-                   </div>
-                </div>
-                <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
-                   <div>
-                      <p className="text-sm text-gray-400 mb-1">Total Perdido</p>
-                      <h3 className="text-2xl font-bold text-red-400">R$ {totalPerdidos.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}</h3>
-                   </div>
-                   <div className="p-3 bg-red-500/10 rounded-full">
-                      <TrendingUp size={24} className="text-red-400 rotate-180" />
-                   </div>
-                </div>
-                <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
-                   <div>
-                      <p className="text-sm text-gray-400 mb-1">Ticket Médio (Ganhos)</p>
-                      <h3 className="text-2xl font-bold text-sky-400">R$ {orcGanhos.length > 0 ? (totalGanhos / orcGanhos.length).toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '0'}</h3>
-                   </div>
-                   <div className="p-3 bg-sky-500/10 rounded-full">
-                      <ReceiptText size={24} className="text-sky-400" />
-                   </div>
-                </div>
-              </div>
-           </div>
-
-          {/* Gráfico 2: Análise de Churn */}
-          <div className="glass-panel p-6">
-             <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-6">
-                <AlertCircle size={18} className="text-red-400" />
-                Análise de Risco — Inatividade (Dias)
-             </h2>
-             <div className="h-[250px] w-full">
-               <ResponsiveContainer width="100%" height="100%">
-                 <AreaChart data={churnData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-                   <defs>
-                     <linearGradient id="colorChurn" x1="0" y1="0" x2="0" y2="1">
-                       <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
-                       <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                     </linearGradient>
-                   </defs>
-                   <XAxis dataKey="name" stroke="#4b5563" />
-                   <YAxis stroke="#4b5563" />
-                   <Tooltip 
-                     contentStyle={{ backgroundColor: '#0b101a', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}
-                     formatter={(value: any) => [`${value} Clientes`, 'Volume Escapando']}
-                   />
-                   <Area type="monotone" dataKey="quantidade" stroke="#ef4444" fillOpacity={1} fill="url(#colorChurn)" />
-                 </AreaChart>
-               </ResponsiveContainer>
-             </div>
+      {/* GRÁFICOS */}
+      <div className="lg:col-span-3 grid grid-cols-1 lg:grid-cols-3 gap-6 mt-2">
+        {/* Funil de Orçamentos abertos */}
+        <div className="glass-panel p-6">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-6">
+            <ReceiptText size={18} className="text-emerald-400" />
+            Funil Preditivo — Orçamentos (Tempo)
+          </h2>
+          <div className="h-[250px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={funilOrcamentos} layout="vertical" margin={{ top: 0, right: 60, left: 40, bottom: 0 }}>
+                <XAxis type="number" stroke="#4b5563" tickFormatter={(val) => `R$ ${(val/1000).toFixed(0)}k`} />
+                <YAxis dataKey="name" type="category" stroke="#9ca3af" width={90} />
+                <Tooltip
+                  cursor={{fill: 'rgba(255,255,255,0.02)'}}
+                  contentStyle={{ backgroundColor: '#0b101a', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  formatter={(value: any) => [`R$ ${value.toLocaleString('pt-BR')}`, 'Volume Retido']}
+                />
+                <Bar dataKey="valor" radius={[0, 4, 4, 0]}>
+                  {funilOrcamentos.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  ))}
+                  <LabelList
+                    dataKey="valor"
+                    position="right"
+                    fill="#9ca3af"
+                    fontSize={11}
+                    formatter={(val: any) => `R$ ${(Number(val)/1000).toFixed(1)}k`}
+                  />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
+
+        {/* Conversão e Performance */}
+        <div className="glass-panel p-6">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-6">
+            <TrendingUp size={18} className="text-emerald-400" />
+            Conversão e Performance
+          </h2>
+          <div className="flex flex-col justify-center gap-6 h-[250px] w-full">
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-400 mb-1">Total Faturado</p>
+                <h3 className="text-2xl font-bold text-emerald-400">R$ {totalFaturado.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}</h3>
+              </div>
+              <div className="p-3 bg-emerald-500/10 rounded-full">
+                <TrendingUp size={24} className="text-emerald-400" />
+              </div>
+            </div>
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-400 mb-1">Total Cancelado + Vencido</p>
+                <h3 className="text-2xl font-bold text-red-400">R$ {(totalCancelado + totalVencido).toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}</h3>
+              </div>
+              <div className="p-3 bg-red-500/10 rounded-full">
+                <TrendingUp size={24} className="text-red-400 rotate-180" />
+              </div>
+            </div>
+            <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-400 mb-1">Ticket Médio (Faturados)</p>
+                <h3 className="text-2xl font-bold text-sky-400">R$ {orcFaturados.length > 0 ? (totalFaturado / orcFaturados.length).toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '0'}</h3>
+              </div>
+              <div className="p-3 bg-sky-500/10 rounded-full">
+                <ReceiptText size={24} className="text-sky-400" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Churn */}
+        <div className="glass-panel p-6">
+          <h2 className="text-lg font-semibold text-white flex items-center gap-2 mb-6">
+            <AlertCircle size={18} className="text-red-400" />
+            Análise de Risco — Inatividade (Dias)
+          </h2>
+          <div className="h-[250px] w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={churnData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorChurn" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="name" stroke="#4b5563" />
+                <YAxis stroke="#4b5563" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#0b101a', borderColor: 'rgba(255,255,255,0.1)', borderRadius: '8px' }}
+                  formatter={(value: any) => [`${value} Clientes`, 'Volume Escapando']}
+                />
+                <Area type="monotone" dataKey="quantidade" stroke="#ef4444" fillOpacity={1} fill="url(#colorChurn)" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
 
 
       {/* MODAL DE ORÇAMENTOS DO VENDEDOR */}
       {vendedorSelecionado && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-slate-900 border border-white/10 w-full max-w-5xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
-            
+
             <div className="p-6 border-b border-white/10 flex justify-between items-center bg-white/[0.02]">
               <div>
                 <h2 className="text-xl font-bold text-white uppercase">{vendedorSelecionado.nome}</h2>
@@ -568,9 +854,9 @@ export default function Dashboard() {
                       </td>
                       <td className="px-6 py-3 text-gray-400 text-xs">
                         {o.ORC_DATA_EMISSAO_ORCAMENTO ? (
-                           o.ORC_DATA_EMISSAO_ORCAMENTO.includes('/Date(') 
-                           ? new Date(parseInt(o.ORC_DATA_EMISSAO_ORCAMENTO.match(/\\d+/)?.[0] || '0')).toLocaleDateString('pt-BR') 
-                           : new Date(o.ORC_DATA_EMISSAO_ORCAMENTO).toLocaleDateString('pt-BR')
+                          o.ORC_DATA_EMISSAO_ORCAMENTO.includes('/Date(')
+                            ? new Date(parseInt(o.ORC_DATA_EMISSAO_ORCAMENTO.match(/\\d+/)?.[0] || '0')).toLocaleDateString('pt-BR')
+                            : new Date(o.ORC_DATA_EMISSAO_ORCAMENTO).toLocaleDateString('pt-BR')
                         ) : '—'}
                       </td>
                       <td className="px-6 py-3 text-right font-bold text-amber-200">
@@ -593,10 +879,10 @@ export default function Dashboard() {
 
       {/* MODAL CLIENTE 360 */}
       {clienteModal && (
-        <Cliente360Modal 
-          codigoCliente={clienteModal.codigo} 
-          lojaCliente={clienteModal.loja} 
-          onClose={() => setClienteModal(null)} 
+        <Cliente360Modal
+          codigoCliente={clienteModal.codigo}
+          lojaCliente={clienteModal.loja}
+          onClose={() => setClienteModal(null)}
         />
       )}
 

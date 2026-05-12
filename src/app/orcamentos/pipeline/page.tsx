@@ -34,13 +34,15 @@ export default function PipelineOrcamentos() {
     congelados: { titulo: 'Congelados (>30 Dias)', cor: 'text-red-400', border: 'border-red-500/30', bg: 'bg-red-500/10', icone: <Snowflake size={16} />, items: [] as any[], total: 0 },
   };
 
-  const orcAbertos = orcamentos.filter(o => !o.STATUS || String(o.STATUS).toUpperCase() === 'ABERTO' || String(o.STATUS).toUpperCase() === 'EM ABERTO');
-  const orcGanhos = orcamentos.filter(o => String(o.STATUS).toUpperCase() === 'GANHO' || String(o.STATUS).toUpperCase() === 'FATURADO');
-  
-  const winRate = (orcGanhos.length + orcamentos.filter(o => String(o.STATUS).toUpperCase() === 'PERDIDO').length) > 0 
-    ? ((orcGanhos.length / (orcGanhos.length + orcamentos.filter(o => String(o.STATUS).toUpperCase() === 'PERDIDO').length)) * 100).toFixed(1) 
+  const getStatus = (o: any) => String(o.Status || o.STATUS || '').toUpperCase().trim();
+  const orcAbertos = orcamentos.filter(o => { const s = getStatus(o); return !s || s === 'ABERTO' || s === 'EM ABERTO'; });
+  const orcFaturados = orcamentos.filter(o => getStatus(o) === 'FATURADO');
+  // Win Rate = FATURADO / (FATURADO + CANCELADO + VENCIDO). VENCIDO conta como perda (decisão 2026-05-12).
+  const fechadosCount = orcamentos.filter(o => ['FATURADO', 'CANCELADO', 'VENCIDO'].includes(getStatus(o))).length;
+  const winRate = fechadosCount > 0
+    ? ((orcFaturados.length / fechadosCount) * 100).toFixed(1)
     : '0.0';
-  const totalFaturado = orcGanhos.reduce((acc, curr) => acc + (curr.ORC_VALOR_TOTAL || 0), 0);
+  const totalFaturado = orcFaturados.reduce((acc, curr) => acc + (curr.ORC_VALOR_TOTAL || 0), 0);
 
   orcAbertos.forEach(o => {
     if (!o.ORC_DATA_EMISSAO_ORCAMENTO) return;

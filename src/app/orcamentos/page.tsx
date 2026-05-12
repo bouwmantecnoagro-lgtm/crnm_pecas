@@ -59,7 +59,7 @@ export default function OrcamentosPage() {
                          (o.ORC_NUMERO_ORCAMENTO || '').toLowerCase().includes(term) || 
                          (o.CODIGO_PRODUTO_ORC || '').toLowerCase().includes(term);
       const passaVendedor = vendedorFiltro ? o.ORC_NOME_VENDEDOR === vendedorFiltro : true;
-      const statusObj = o.STATUS_ORCAMENTO || o.STATUS || 'Aberto';
+      const statusObj = o.STATUS_ORCAMENTO || o.Status || o.STATUS || 'Aberto';
       const passaStatus = statusFiltro ? (statusObj.toLowerCase() === statusFiltro.toLowerCase()) : true;
       
       return passaBusca && passaVendedor && passaStatus;
@@ -192,9 +192,10 @@ export default function OrcamentosPage() {
                       <div className="flex items-center gap-2 mb-1">
                         <div className="text-sky-300 font-mono text-xs">{o.CODIGO_PRODUTO_ORC}</div>
                         {(() => {
-                          const status = String(o.STATUS || 'ABERTO').toUpperCase();
-                          if (status === 'GANHO' || status === 'FATURADO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">GANHO</span>;
-                          if (status === 'PERDIDO' || status === 'CANCELADO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/20 text-red-400 border border-red-500/20">PERDIDO</span>;
+                          const status = String(o.Status || o.STATUS || 'ABERTO').toUpperCase().trim();
+                          if (status === 'FATURADO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">FATURADO</span>;
+                          if (status === 'CANCELADO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/20 text-red-400 border border-red-500/20">CANCELADO</span>;
+                          if (status === 'VENCIDO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/20">VENCIDO</span>;
                           return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/20">{status}</span>;
                         })()}
                       </div>

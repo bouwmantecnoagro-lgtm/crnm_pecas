@@ -22,6 +22,45 @@ const DataContext = createContext<DataContextProps>({
   refreshAcoes: () => {},
 });
 
+// Incrementar este número sempre que o formato do cache mudar, para invalidar dados antigos.
+const CACHE_VERSION = 4;
+const CACHE_KEY = `crm_data_cache_v${CACHE_VERSION}`;
+const CACHE_TIME_KEY = `crm_data_time_v${CACHE_VERSION}`;
+const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hora
+
+// localStorage persiste entre abas e recarregamentos, evitando que cada aba
+// nova faça um novo download completo dos dados.
+function readCache(): { cli: any[]; orc: any[]; maq: any[]; acoesData: any[] } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const cacheStr = localStorage.getItem(CACHE_KEY);
+    const cacheTime = localStorage.getItem(CACHE_TIME_KEY);
+    if (!cacheStr || !cacheTime) return null;
+    if (Date.now() - parseInt(cacheTime) >= CACHE_TTL_MS) return null;
+    return JSON.parse(cacheStr);
+  } catch {
+    return null;
+  }
+}
+
+function writeCache(data: { cli: any[]; orc: any[]; maq: any[]; acoesData: any[] }) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+    localStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+  } catch {
+    // Quota excedida — apaga o cache antigo e tenta gravar novamente
+    try {
+      localStorage.removeItem(CACHE_KEY);
+      localStorage.removeItem(CACHE_TIME_KEY);
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+      localStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+    } catch {
+      // Se ainda não couber, segue sem cache local (o servidor já faz o cache)
+    }
+  }
+}
+
 export function DataProvider({ children }: { children: React.ReactNode }) {
   const [clientes, setClientes] = useState<any[]>([]);
   const [orcamentos, setOrcamentos] = useState<any[]>([]);
@@ -45,12 +84,8 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
     async function carregarDados() {
       try {
         const isDemo = typeof window !== 'undefined' && window.location.search.includes('demo=true');
-        
+
         let cli, orc, maq, acoesData;
-        const CACHE_KEY = 'crm_data_cache';
-        const CACHE_TIME_KEY = 'crm_data_time';
-        const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hora
-        const now = Date.now();
 
         if (isDemo) {
           const res = await fetch('/demo_data.json');
@@ -60,44 +95,26 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           maq = demo.maquinas;
           acoesData = demo.acoes;
         } else {
-          let useCache = false;
-          if (typeof window !== 'undefined') {
-            const cacheStr = sessionStorage.getItem(CACHE_KEY);
-            const cacheTime = sessionStorage.getItem(CACHE_TIME_KEY);
-            if (cacheStr && cacheTime && (now - parseInt(cacheTime) < CACHE_TTL_MS)) {
-              try {
-                const data = JSON.parse(cacheStr);
-                cli = data.cli;
-                orc = data.orc;
-                maq = data.maq;
-                acoesData = data.acoesData;
-                useCache = true;
-              } catch (e) {
-                console.warn('Erro ao ler cache do sessionStorage', e);
-              }
-            }
-          }
-
-          if (!useCache) {
+          const cached = readCache();
+          if (cached) {
+            cli = cached.cli;
+            orc = cached.orc;
+            maq = cached.maq;
+            acoesData = cached.acoesData;
+          } else {
             const [resCli, resOrc, resMaq, resAcoes] = await Promise.all([
               fetch('/api/dados?tabela=crm_clientes'),
               fetch('/api/dados?tabela=crm_orcamentos'),
               fetch('/api/dados?tabela=crm_parquemaquinas'),
               fetch('/api/acoes'),
             ]);
-            [cli, orc, maq, acoesData] = await Promise.all([resCli.json(), resOrc.json(), resMaq.json(), resAcoes.json()]);
-            
-            if (typeof window !== 'undefined') {
-              try {
-                sessionStorage.setItem(CACHE_KEY, JSON.stringify({ cli, orc, maq, acoesData }));
-                sessionStorage.setItem(CACHE_TIME_KEY, now.toString());
-              } catch (e) {
-                console.warn('SessionStorage cheio, ignorando cache local', e);
-              }
-            }
+            [cli, orc, maq, acoesData] = await Promise.all([
+              resCli.json(), resOrc.json(), resMaq.json(), resAcoes.json(),
+            ]);
+            writeCache({ cli, orc, maq, acoesData });
           }
         }
-        
+
         if (isMounted) {
           if (Array.isArray(cli)) setClientes(cli);
           if (Array.isArray(orc)) setOrcamentos(orc);
@@ -105,11 +122,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           if (Array.isArray(acoesData)) setAcoes(acoesData);
 
           const todos = [...(Array.isArray(cli) ? cli : []), ...(Array.isArray(orc) ? orc : [])];
-          if (todos.length > 0) {
-             const datas = todos.filter(r => r.updated_at).map(r => new Date(r.updated_at).getTime());
-             if (datas.length > 0) {
-               setUltimaSync(new Date(Math.max(...datas)).toLocaleString('pt-BR'));
-             }
+          const comData = todos.filter(r => r.updated_at);
+          if (comData.length > 0) {
+            // reduce em vez de spread para não estourar a call stack com 50k+ itens
+            const maxTs = comData.reduce((max, r) => {
+              const t = new Date(r.updated_at).getTime();
+              return t > max ? t : max;
+            }, 0);
+            setUltimaSync(new Date(maxTs).toLocaleString('pt-BR'));
           }
         }
       } catch (err) {

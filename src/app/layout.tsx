@@ -16,7 +16,9 @@ export default function RootLayout({
 }) {
   return (
     <html lang="pt-BR">
-      <body className="antialiased font-sans bg-slate-950 text-slate-100">
+      {/* suppressHydrationWarning: ignora classes injetadas por extensões do
+          navegador (ex.: "remail_body") que alteram o <body> antes do React hidratar. */}
+      <body className="antialiased font-sans bg-slate-950 text-slate-100" suppressHydrationWarning>
         <DataProvider>
           <div className="flex h-screen overflow-hidden">
             <Sidebar />

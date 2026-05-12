@@ -100,7 +100,15 @@ function processOrcamento(o: any): any {
   
   // Mapeamento da nova coluna de STATUS do orcamento (Trata variações de nome do cabeçalho)
   const statusStr = String(o.STATUS || o.Status || o.status || o.STATUS_ORCAMENTO || o.Situacao || 'ABERTO').toUpperCase().trim();
-  r.STATUS = statusStr;
+
+  // IMPORTANTE: a coluna real no Postgres é "Status" (case-sensitive por causa
+  // das aspas duplas). O Supabase rejeita upsert com chaves desconhecidas (500),
+  // então removemos as variantes copiadas pelo trimAll antes de regravar a canônica.
+  delete r.STATUS;
+  delete r.status;
+  delete r.STATUS_ORCAMENTO;
+  delete r.Situacao;
+  r.Status = statusStr;
 
   return r;
 }
@@ -205,6 +213,7 @@ export async function POST(request: Request) {
 
     const msg = `Sync OK: ${clientes.length} cli, ${orcamentos.length} orc, ${maquinas.length} maq`;
     console.log(msg);
+
 
     return NextResponse.json({
       success: true,
