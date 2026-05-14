@@ -287,7 +287,7 @@ export default function Dashboard() {
           </p>
           <div className="flex items-center justify-center gap-2 text-sky-400 text-sm">
             <div className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
-            Ouvindo sincronizações em <code className="bg-white/5 px-2 py-0.5 rounded">crm-pecas.vercel.app/api/sync</code>
+            Ouvindo sincronizações em <code className="bg-white/5 px-2 py-0.5 rounded">crnm-pecas.vercel.app/api/sync</code>
           </div>
         </div>
       </div>
