@@ -1,6 +1,7 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 interface DataContextProps {
   clientes: any[];
@@ -22,19 +23,44 @@ const DataContext = createContext<DataContextProps>({
   refreshAcoes: () => {},
 });
 
-// Incrementar este número sempre que o formato do cache mudar, para invalidar dados antigos.
-const CACHE_VERSION = 4;
-const CACHE_KEY = `crm_data_cache_v${CACHE_VERSION}`;
-const CACHE_TIME_KEY = `crm_data_time_v${CACHE_VERSION}`;
+// v5: cache passou a ser segregado por user_id (chave inclui o sub do JWT).
+// Sem isso, vendedor A logando depois de vendedor B no mesmo browser via
+// cache de A → vazamento. Incrementar este número sempre que o formato mudar.
+const CACHE_VERSION = 5;
 const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hora
 
-// localStorage persiste entre abas e recarregamentos, evitando que cada aba
-// nova faça um novo download completo dos dados.
-function readCache(): { cli: any[]; orc: any[]; maq: any[]; acoesData: any[] } | null {
+function cacheKeys(userId: string) {
+  return {
+    data: `crm_data_cache_v${CACHE_VERSION}_${userId}`,
+    time: `crm_data_time_v${CACHE_VERSION}_${userId}`,
+  };
+}
+
+// Limpa caches antigos (versões anteriores + outros users) ao carregar.
+function pruneLegacyCache(currentUserId: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    const keep = cacheKeys(currentUserId);
+    const toRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (!k) continue;
+      if (k.startsWith('crm_data_cache_') || k.startsWith('crm_data_time_')) {
+        if (k !== keep.data && k !== keep.time) toRemove.push(k);
+      }
+    }
+    toRemove.forEach((k) => localStorage.removeItem(k));
+  } catch {
+    // ignora erro de storage (modo privado, etc)
+  }
+}
+
+function readCache(userId: string): { cli: any[]; orc: any[]; maq: any[]; acoesData: any[] } | null {
   if (typeof window === 'undefined') return null;
   try {
-    const cacheStr = localStorage.getItem(CACHE_KEY);
-    const cacheTime = localStorage.getItem(CACHE_TIME_KEY);
+    const { data: dataKey, time: timeKey } = cacheKeys(userId);
+    const cacheStr = localStorage.getItem(dataKey);
+    const cacheTime = localStorage.getItem(timeKey);
     if (!cacheStr || !cacheTime) return null;
     if (Date.now() - parseInt(cacheTime) >= CACHE_TTL_MS) return null;
     return JSON.parse(cacheStr);
@@ -43,20 +69,21 @@ function readCache(): { cli: any[]; orc: any[]; maq: any[]; acoesData: any[] } |
   }
 }
 
-function writeCache(data: { cli: any[]; orc: any[]; maq: any[]; acoesData: any[] }) {
+function writeCache(userId: string, data: { cli: any[]; orc: any[]; maq: any[]; acoesData: any[] }) {
   if (typeof window === 'undefined') return;
   try {
-    localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-    localStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+    const { data: dataKey, time: timeKey } = cacheKeys(userId);
+    localStorage.setItem(dataKey, JSON.stringify(data));
+    localStorage.setItem(timeKey, Date.now().toString());
   } catch {
-    // Quota excedida — apaga o cache antigo e tenta gravar novamente
     try {
-      localStorage.removeItem(CACHE_KEY);
-      localStorage.removeItem(CACHE_TIME_KEY);
-      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
-      localStorage.setItem(CACHE_TIME_KEY, Date.now().toString());
+      const { data: dataKey, time: timeKey } = cacheKeys(userId);
+      localStorage.removeItem(dataKey);
+      localStorage.removeItem(timeKey);
+      localStorage.setItem(dataKey, JSON.stringify(data));
+      localStorage.setItem(timeKey, Date.now().toString());
     } catch {
-      // Se ainda não couber, segue sem cache local (o servidor já faz o cache)
+      // Sem cache local; servidor segue respondendo.
     }
   }
 }
@@ -95,7 +122,17 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           maq = demo.maquinas;
           acoesData = demo.acoes;
         } else {
-          const cached = readCache();
+          const supabase = createClient();
+          const { data: { user } } = await supabase.auth.getUser();
+          if (!user) {
+            // Sem sessão — middleware deveria ter redirecionado. Apenas evita
+            // carregar dados sem chave de cache válida.
+            if (isMounted) setLoading(false);
+            return;
+          }
+
+          pruneLegacyCache(user.id);
+          const cached = readCache(user.id);
           if (cached) {
             cli = cached.cli;
             orc = cached.orc;
@@ -111,7 +148,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             [cli, orc, maq, acoesData] = await Promise.all([
               resCli.json(), resOrc.json(), resMaq.json(), resAcoes.json(),
             ]);
-            writeCache({ cli, orc, maq, acoesData });
+            writeCache(user.id, { cli, orc, maq, acoesData });
           }
         }
 
@@ -124,7 +161,6 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           const todos = [...(Array.isArray(cli) ? cli : []), ...(Array.isArray(orc) ? orc : [])];
           const comData = todos.filter(r => r.updated_at);
           if (comData.length > 0) {
-            // reduce em vez de spread para não estourar a call stack com 50k+ itens
             const maxTs = comData.reduce((max, r) => {
               const t = new Date(r.updated_at).getTime();
               return t > max ? t : max;

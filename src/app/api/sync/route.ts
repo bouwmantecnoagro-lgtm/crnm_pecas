@@ -62,12 +62,18 @@ function parseData(val: any): string | null {
   if (/^\d{8}$/.test(s)) {
     return `${s.substring(0,4)}-${s.substring(4,6)}-${s.substring(6,8)}`;
   }
-  
+
+  // Formato brasileiro DD/MM/YYYY: 11/03/2025 → 2025-03-11
+  const brMatch = s.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (brMatch) {
+    return `${brMatch[3]}-${brMatch[2]}-${brMatch[1]}`;
+  }
+
   // Formato ISO Padrão já contendo traços
   if (s.includes('-')) {
     return s.split('T')[0];
   }
-  
+
   return s;
 }
 

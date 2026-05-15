@@ -1,14 +1,42 @@
 'use client';
 
-import { useState } from 'react';
-import { Loader2, Flame, Clock, Snowflake, TrendingUp, Zap, ReceiptText } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Loader2, Flame, Clock, Snowflake, TrendingUp, Zap, ReceiptText, Filter, RotateCcw } from 'lucide-react';
 import Link from 'next/link';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
 import { useData } from '@/contexts/DataContext';
 
+const PERIODOS = [
+  { dias: 30, label: '30 dias' },
+  { dias: 90, label: '90 dias' },
+  { dias: 180, label: '6 meses' },
+  { dias: 365, label: '12 meses' },
+  { dias: 0, label: 'Todo período' },
+];
+
 export default function PipelineOrcamentos() {
   const { orcamentos, loading, clientes, refreshAcoes, acoes } = useData();
   const [criarAcaoData, setCriarAcaoData] = useState<any>(null);
+
+  // Filtros globais (mesmo padrão do Dashboard) — sem isso o Pipeline acumulava
+  // anos de orçamentos abertos e distorcia o Win Rate e os valores das colunas.
+  const [fPeriodoDias, setFPeriodoDias] = useState(90);
+
+  const dataLimite = useMemo(() => {
+    if (fPeriodoDias === 0) return null;
+    const d = new Date();
+    d.setDate(d.getDate() - fPeriodoDias);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, [fPeriodoDias]);
+
+  const orcamentosFiltrados = useMemo(() => orcamentos.filter((o: any) => {
+    if (dataLimite && o.ORC_DATA_EMISSAO_ORCAMENTO) {
+      const d = new Date(o.ORC_DATA_EMISSAO_ORCAMENTO);
+      if (!isNaN(d.getTime()) && d < dataLimite) return false;
+    }
+    return true;
+  }), [orcamentos, dataLimite]);
 
   // Vendedores para o modal
   const vendedoresUnicos = Array.from(
@@ -26,7 +54,7 @@ export default function PipelineOrcamentos() {
 
   // Lógica de Categorização Automática
   const hoje = new Date();
-  
+
   const colunas = {
     quentes: { titulo: 'Quentes (0-7 Dias)', cor: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/10', icone: <Flame size={16} />, items: [] as any[], total: 0 },
     negociacao: { titulo: 'Em Negociação (8-15 Dias)', cor: 'text-sky-400', border: 'border-sky-500/30', bg: 'bg-sky-500/10', icone: <TrendingUp size={16} />, items: [] as any[], total: 0 },
@@ -35,14 +63,15 @@ export default function PipelineOrcamentos() {
   };
 
   const getStatus = (o: any) => String(o.Status || o.STATUS || '').toUpperCase().trim();
-  const orcAbertos = orcamentos.filter(o => { const s = getStatus(o); return !s || s === 'ABERTO' || s === 'EM ABERTO'; });
-  const orcFaturados = orcamentos.filter(o => getStatus(o) === 'FATURADO');
+  const orcAbertos = orcamentosFiltrados.filter(o => { const s = getStatus(o); return !s || s === 'ABERTO' || s === 'EM ABERTO'; });
+  const orcFaturados = orcamentosFiltrados.filter(o => getStatus(o) === 'FATURADO');
   // Win Rate = FATURADO / (FATURADO + CANCELADO + VENCIDO). VENCIDO conta como perda (decisão 2026-05-12).
-  const fechadosCount = orcamentos.filter(o => ['FATURADO', 'CANCELADO', 'VENCIDO'].includes(getStatus(o))).length;
+  const fechadosCount = orcamentosFiltrados.filter(o => ['FATURADO', 'CANCELADO', 'VENCIDO'].includes(getStatus(o))).length;
   const winRate = fechadosCount > 0
     ? ((orcFaturados.length / fechadosCount) * 100).toFixed(1)
     : '0.0';
   const totalFaturado = orcFaturados.reduce((acc, curr) => acc + (curr.ORC_VALOR_TOTAL || 0), 0);
+  const filtroAtivo = fPeriodoDias !== 90;
 
   orcAbertos.forEach(o => {
     if (!o.ORC_DATA_EMISSAO_ORCAMENTO) return;
@@ -86,6 +115,29 @@ export default function PipelineOrcamentos() {
           </Link>
         </div>
       </header>
+
+      {/* BARRA DE FILTRO DE PERÍODO */}
+      <div className={`glass-panel p-3 flex flex-wrap items-center gap-3 border shrink-0 ${filtroAtivo ? 'border-sky-500/30 bg-sky-500/[0.02]' : 'border-white/5'}`}>
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400 pr-2 border-r border-white/10">
+          <Filter size={14} className={filtroAtivo ? 'text-sky-400' : 'text-gray-500'} />
+          Filtro de período (emissão)
+        </div>
+        <select
+          className="bg-black/30 border border-white/10 text-sm rounded px-3 py-1.5 text-gray-200 focus:outline-none focus:border-sky-500"
+          value={fPeriodoDias}
+          onChange={e => setFPeriodoDias(Number(e.target.value))}
+        >
+          {PERIODOS.map(p => <option key={p.dias} value={p.dias}>{p.label}</option>)}
+        </select>
+        <span className="text-xs text-gray-500">
+          {orcAbertos.length} abertos • {fechadosCount} fechados no período
+        </span>
+        {filtroAtivo && (
+          <button onClick={() => setFPeriodoDias(90)} className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 px-2 py-1.5 transition-colors ml-auto">
+            <RotateCcw size={12} /> Voltar a 90 dias
+          </button>
+        )}
+      </div>
 
       {/* KPIs Rápidos de Status */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-2 shrink-0">

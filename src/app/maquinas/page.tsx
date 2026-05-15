@@ -28,17 +28,31 @@ export default function MaquinasPage() {
   const deferredBusca = useDeferredValue(busca);
   const [pagina, setPagina] = useState(1);
   const ITENS_POR_PAGINA = 50;
-  
+
   // Advanced Filters
   const [categoriaFiltro, setCategoriaFiltro] = useState('');
   const [fabricanteFiltro, setFabricanteFiltro] = useState('');
   const [estadoFiltro, setEstadoFiltro] = useState('');
   const [somenteRecentes, setSomenteRecentes] = useState(false);
+  const [diasFiltroRecente, setDiasFiltroRecente] = useState(90);
   const [cliente360, setCliente360] = useState<{ codigo: string, loja: string } | null>(null);
+
+  // Quando o usuário chega via /maquinas?recentes=N (vindo do card Cross-Sell), ativa o filtro
+  // automaticamente para o mesmo período mostrado no dashboard.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const sp = new URLSearchParams(window.location.search);
+    const r = sp.get('recentes');
+    if (r) {
+      const n = parseInt(r, 10);
+      if (!isNaN(n) && n > 0) setDiasFiltroRecente(n);
+      setSomenteRecentes(true);
+    }
+  }, []);
 
   useEffect(() => {
     setPagina(1);
-  }, [deferredBusca, categoriaFiltro, fabricanteFiltro, estadoFiltro, somenteRecentes]);
+  }, [deferredBusca, categoriaFiltro, fabricanteFiltro, estadoFiltro, somenteRecentes, diasFiltroRecente]);
 
   const filtrados = useMemo(() => {
     return maquinas.filter(m => {
@@ -58,7 +72,7 @@ export default function MaquinasPage() {
         const dt = new Date(m.EMISSAO.toString().includes('Date') ? parseInt(m.EMISSAO.match(/\d+/)![0]) : m.EMISSAO);
         if (!isNaN(dt.getTime())) {
           const diasAge = Math.floor((new Date().getTime() - dt.getTime()) / (1000 * 60 * 60 * 24));
-          passaRecente = diasAge <= 90;
+          passaRecente = diasAge <= diasFiltroRecente;
         } else {
           passaRecente = false;
         }
@@ -68,7 +82,7 @@ export default function MaquinasPage() {
 
       return passaBusca && passaCategoria && passaFabricante && passaEstado && passaRecente;
     });
-  }, [maquinas, deferredBusca, categoriaFiltro, fabricanteFiltro, estadoFiltro, somenteRecentes]);
+  }, [maquinas, deferredBusca, categoriaFiltro, fabricanteFiltro, estadoFiltro, somenteRecentes, diasFiltroRecente]);
 
   const categorias = useMemo(() => Array.from(new Set(maquinas.map(m => String(m.CATEGORIA || '').trim()).filter(Boolean))).sort(), [maquinas]);
   const fabricantes = useMemo(() => Array.from(new Set(maquinas.map(m => String(m.FABRICANTE || m.marca || '').trim()).filter(Boolean))).sort(), [maquinas]);
@@ -129,11 +143,11 @@ export default function MaquinasPage() {
             <option value="USADO">Apenas USADO</option>
           </select>
           
-          <button 
+          <button
             onClick={() => setSomenteRecentes(!somenteRecentes)}
             className={`px-4 py-2 text-sm rounded-lg flex items-center gap-2 border transition-colors ${somenteRecentes ? 'bg-amber-500/20 text-amber-400 border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.2)]' : 'bg-black/40 text-gray-400 border-white/10 hover:border-amber-500/30'}`}
           >
-            ⚡ Limitar a Entregas Recentes ({'<'} 90d)
+            ⚡ Limitar a Entregas Recentes ({'<'} {diasFiltroRecente}d)
           </button>
           
           {(busca || categoriaFiltro || fabricanteFiltro || estadoFiltro || somenteRecentes) && (

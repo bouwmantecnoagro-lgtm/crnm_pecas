@@ -1,12 +1,8 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@/lib/supabase/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 
 export const dynamic = 'force-dynamic';
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 const COLS_CLIENTES = [
   'id', 'FILIAL', 'CODIGO_CLIENTE', 'LOJA_CLIENTE', 'NOME_CLIENTE',
@@ -34,9 +30,15 @@ const COLS_MAQUINAS = [
 ].join(',');
 
 // ---------------------------------------------------------------------------
-// fetchAll genérico — busca tabela inteira com paginação + concurrency limitada
+// fetchAll genérico — busca tabela inteira com paginação + concurrency limitada.
+// Usa cliente autenticado: RLS filtra automaticamente pelo escopo do user.
 // ---------------------------------------------------------------------------
-async function fetchAll(tableName: string, columns: string, orderCol: string): Promise<any[]> {
+async function fetchAll(
+  supabase: SupabaseClient,
+  tableName: string,
+  columns: string,
+  orderCol: string
+): Promise<any[]> {
   const { count, error: countError } = await supabase
     .from(tableName)
     .select('*', { count: 'exact', head: true });
@@ -76,18 +78,12 @@ async function fetchAll(tableName: string, columns: string, orderCol: string): P
 }
 
 // ---------------------------------------------------------------------------
-// fetchOrcamentosRecentes — carrega só os orçamentos dos últimos 365 dias.
-//
-// A coluna "Status" no Supabase está toda NULL porque o sync route gravava
-// em "STATUS" (maiúsculo) — casing diferente no PostgreSQL com aspas.
-// Por isso NÃO filtramos por status aqui. Filtramos apenas por DATA.
-//
-// 152k rows totais → ~último ano ≈ poucos milhares → cabe no timeout do Vercel.
+// fetchOrcamentosRecentes — só os orçamentos dos últimos 365 dias (RLS aplica).
 // ---------------------------------------------------------------------------
-async function fetchOrcamentosRecentes(): Promise<any[]> {
+async function fetchOrcamentosRecentes(supabase: SupabaseClient): Promise<any[]> {
   const umAnoAtras = new Date();
   umAnoAtras.setFullYear(umAnoAtras.getFullYear() - 1);
-  const dataCorte = umAnoAtras.toISOString().split('T')[0]; // YYYY-MM-DD
+  const dataCorte = umAnoAtras.toISOString().split('T')[0];
 
   const { count, error: cErr } = await supabase
     .from('crm_orcamentos')
@@ -127,24 +123,29 @@ async function fetchOrcamentosRecentes(): Promise<any[]> {
 
 export async function GET(request: Request) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      return NextResponse.json({ error: 'Não autenticado' }, { status: 401 });
+    }
+
     const { searchParams } = new URL(request.url);
     const tabela = searchParams.get('tabela') || 'clientes';
 
     switch (tabela) {
       case 'clientes':
       case 'crm_clientes': {
-        const data = await fetchAll('crm_clientes', COLS_CLIENTES, 'DIAS_SEM_COMPRA');
+        const data = await fetchAll(supabase, 'crm_clientes', COLS_CLIENTES, 'DIAS_SEM_COMPRA');
         return NextResponse.json(data);
       }
       case 'orcamentos':
       case 'crm_orcamentos': {
-        // Só últimos 365 dias — evita timeout com os 152k totais
-        const data = await fetchOrcamentosRecentes();
+        const data = await fetchOrcamentosRecentes(supabase);
         return NextResponse.json(data);
       }
       case 'maquinas':
       case 'crm_parquemaquinas': {
-        const data = await fetchAll('crm_parquemaquinas', COLS_MAQUINAS, 'TOTAL');
+        const data = await fetchAll(supabase, 'crm_parquemaquinas', COLS_MAQUINAS, 'TOTAL');
         return NextResponse.json(data);
       }
       case 'resumo': {

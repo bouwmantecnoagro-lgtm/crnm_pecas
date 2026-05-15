@@ -393,7 +393,7 @@ export default function Dashboard() {
                 subtitle={`Equipamentos vendidos nos ${subPeriodoTxt}`}
                 icon={<Tractor className="text-amber-400" />}
                 accentColor="amber"
-                href="/maquinas"
+                href={`/maquinas?recentes=${periodoCrossDias}`}
                 tooltip={`Máquinas vendidas dentro do período selecionado (${subPeriodoTxt}). Cada equipamento novo é uma oportunidade aberta para venda de peças e consumíveis.`}
               />
               <KpiCard

@@ -26,10 +26,15 @@ export default async function UsuariosPage() {
     redirect('/');
   }
 
-  const { data: users } = await admin
-    .from('profiles')
-    .select('id, email, nome, role, created_at')
-    .order('created_at', { ascending: false });
+  const [{ data: users }, { data: vendedores }] = await Promise.all([
+    admin
+      .from('profiles')
+      .select('id, email, nome, role, cod_vendedor, created_at')
+      .order('created_at', { ascending: false }),
+    admin
+      .from('crm_vendedores_disponiveis')
+      .select('cod, nome'),
+  ]);
 
   const pendingCount = (users ?? []).filter((u) => u.role === 'PENDING').length;
 
@@ -38,7 +43,7 @@ export default async function UsuariosPage() {
       <div>
         <h1 className="text-2xl font-bold text-white">Gerenciar Usuários</h1>
         <p className="text-sm text-gray-400 mt-1">
-          Aprove novos usuários e gerencie níveis de acesso.
+          Aprove novos usuários, gerencie níveis de acesso e associe vendedores.
           {pendingCount > 0 && (
             <span className="ml-2 text-amber-400">
               {pendingCount} {pendingCount === 1 ? 'usuário aguardando' : 'usuários aguardando'} aprovação.
@@ -47,7 +52,11 @@ export default async function UsuariosPage() {
         </p>
       </div>
 
-      <UsersTable users={users ?? []} currentUserId={user.id} />
+      <UsersTable
+        users={users ?? []}
+        currentUserId={user.id}
+        vendedores={vendedores ?? []}
+      />
     </div>
   );
 }
