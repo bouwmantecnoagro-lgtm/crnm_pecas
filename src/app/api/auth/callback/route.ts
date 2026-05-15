@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { createAdminClient } from '@/lib/supabase/admin';
 
 const ALLOWED_DOMAINS = ['@bouwman.com.br'];
 
@@ -40,6 +41,23 @@ export async function GET(request: Request) {
     return NextResponse.redirect(
       new URL(
         '/login?error=Apenas+contas+%40bouwman.com.br+podem+acessar+este+aplicativo',
+        url.origin,
+      ),
+    );
+  }
+
+  const admin = createAdminClient();
+  const { data: profile } = await admin
+    .from('profiles')
+    .select('role')
+    .eq('id', data.user.id)
+    .single();
+
+  if (profile?.role === 'PENDING') {
+    await supabase.auth.signOut();
+    return NextResponse.redirect(
+      new URL(
+        '/login?error=Acesso+pendente+de+aprova%C3%A7%C3%A3o.+Aguarde+o+administrador+liberar+sua+conta.',
         url.origin,
       ),
     );

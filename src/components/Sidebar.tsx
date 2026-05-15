@@ -2,12 +2,34 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, Tractor, FileText, Settings, LogOut, Zap } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { LayoutDashboard, Users, Tractor, FileText, Settings, LogOut, Zap, ShieldCheck } from 'lucide-react';
 import { useData } from '@/contexts/DataContext';
+import { createClient } from '@/lib/supabase/client';
 
 export default function Sidebar() {
   const pathname = usePathname();
   const { acoes } = useData();
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const supabase = createClient();
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      setIsAdmin(data?.role === 'ADMIN');
+    })();
+  }, []);
+
+  async function handleSignOut() {
+    await fetch('/api/auth/signout', { method: 'POST' });
+    window.location.href = '/login';
+  }
 
   // Contar ações pendentes para o badge
   const acoesPendentes = acoes.filter((a: any) => ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'].includes(a.status)).length;
@@ -47,11 +69,21 @@ export default function Sidebar() {
           <NavItem href="/clientes" icon={<Users size={18} />} label="Tabela de Clientes" active={pathname === '/clientes'} />
           <NavItem href="/clientes/carteira" icon={<LayoutDashboard size={18} />} label="CS Pipeline (Retenção)" active={pathname === '/clientes/carteira'} />
         </div>
+
+        {isAdmin && (
+          <div className="pt-2 pb-1">
+            <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Administração</p>
+            <NavItem href="/admin/usuarios" icon={<ShieldCheck size={18} />} label="Usuários" active={pathname.startsWith('/admin/usuarios')} />
+          </div>
+        )}
       </nav>
 
       <div className="mt-auto border-t border-[#ffffff15] pt-4 space-y-2">
         <NavItem href="#" icon={<Settings size={18} />} label="Configurações" />
-        <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all text-left">
+        <button
+          onClick={handleSignOut}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-400 hover:text-red-400 hover:bg-red-500/10 transition-all text-left"
+        >
           <LogOut size={18} />
           Sair
         </button>
