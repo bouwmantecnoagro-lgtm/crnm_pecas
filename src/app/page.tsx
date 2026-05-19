@@ -9,12 +9,7 @@ import AcaoCard from '@/components/AcaoCard';
 import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
 
 import { useData } from '@/contexts/DataContext';
-
-// Status oficial vindo do ERP (coluna STATUS dos orçamentos): ABERTO | VENCIDO | CANCELADO | FATURADO
-// Win Rate por decisão de negócio (2026-05-12): FATURADO / (FATURADO+CANCELADO+VENCIDO).
-// VENCIDO conta como perda assumida (orçamento expirou sem fechar).
-const getStatusOrc = (o: any) => String(o.Status || o.STATUS || '').toUpperCase().trim();
-const STATUS_FECHADOS = new Set(['FATURADO', 'CANCELADO', 'VENCIDO']);
+import { getStatusOrcamento as getStatusOrc, STATUS_FECHADOS } from '@/lib/orcamento';
 
 const PERIODOS = [
   { dias: 30, label: '30 dias' },
@@ -132,6 +127,20 @@ export default function Dashboard() {
   const orcFaturados = useMemo(() => orcamentosFiltrados.filter((o: any) => getStatusOrc(o) === 'FATURADO'), [orcamentosFiltrados]);
   const orcCancelados = useMemo(() => orcamentosFiltrados.filter((o: any) => getStatusOrc(o) === 'CANCELADO'), [orcamentosFiltrados]);
   const orcVencidos = useMemo(() => orcamentosFiltrados.filter((o: any) => getStatusOrc(o) === 'VENCIDO'), [orcamentosFiltrados]);
+
+  // Subconjunto: vencidos cuja data de validade (ORC_DATA_ORCAMENTO) caiu nos últimos 30 dias.
+  // Usado pela rotina "estender +7 dias" do Vanderlei — oportunidades quentes de recuperação.
+  const orcVencidos30d = useMemo(() => {
+    const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+    const limite = new Date(hoje); limite.setDate(limite.getDate() - 30);
+    return orcVencidos.filter((o: any) => {
+      const venc = o.ORC_DATA_ORCAMENTO;
+      if (!venc) return false;
+      const d = new Date(String(venc) + 'T00:00:00');
+      return d >= limite && d <= hoje;
+    });
+  }, [orcVencidos]);
+  const totalVencidos30d = useMemo(() => orcVencidos30d.reduce((acc, c) => acc + (c.ORC_VALOR_TOTAL || 0), 0), [orcVencidos30d]);
 
   const totalAbertos = useMemo(() => orcAbertos.reduce((acc, c) => acc + (c.ORC_VALOR_TOTAL || 0), 0), [orcAbertos]);
   const totalFaturado = useMemo(() => orcFaturados.reduce((acc, c) => acc + (c.ORC_VALOR_TOTAL || 0), 0), [orcFaturados]);
@@ -370,7 +379,7 @@ export default function Dashboard() {
         const acoesUrgentes = [...acoesVencidas, ...acoesHoje, ...acoesAtivas.filter((a: any) => a.prioridade === 'URGENTE' && !acoesVencidas.includes(a) && !acoesHoje.includes(a))].slice(0, 5);
         return (
           <>
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
+            <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-5">
               <KpiCard
                 title="Total de Clientes"
                 value={clientesFiltrados.length.toString()}
@@ -413,6 +422,15 @@ export default function Dashboard() {
                 accentColor="violet"
                 href="/acoes"
                 tooltip="Ações comerciais com status PENDENTE, EM_ANDAMENTO ou REAGENDADA. 'Vencidas' têm data de vencimento anterior a hoje; 'para hoje' vencem na data de hoje."
+              />
+              <KpiCard
+                title="Vencidos · últimos 30 dias"
+                value={orcVencidos30d.length.toString()}
+                subtitle={`R$ ${totalVencidos30d.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})} para recuperar`}
+                icon={<Hourglass className="text-amber-400" />}
+                accentColor="amber"
+                href="/orcamentos?status=VENCIDO&periodoVenc=30"
+                tooltip="Orçamentos com STATUS = VENCIDO cuja data de validade (ORC_DATA_ORCAMENTO) caiu nos últimos 30 dias. Janela de recuperação — em vez de estender +7d manualmente, contate o cliente e retome a oferta."
               />
             </div>
 

@@ -213,6 +213,14 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
                     ⚠️ BLOQUEADO
                   </span>
                 )}
+                {cliente.MARCA_CONCORRENTE && (
+                  <span
+                    className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/20 border border-purple-500/40 text-purple-300"
+                    title={cliente.MODELO_CONCORRENTE ? `Modelo: ${cliente.MODELO_CONCORRENTE}` : 'Marca concorrente registrada via ação'}
+                  >
+                    🚜 {cliente.MARCA_CONCORRENTE}{cliente.MODELO_CONCORRENTE ? ` ${cliente.MODELO_CONCORRENTE}` : ''}
+                  </span>
+                )}
               </div>
               <p className="text-sm text-gray-400 flex items-center gap-4">
                 <span>Cod: <strong className="text-gray-300 font-mono">{cliente.CODIGO_CLIENTE}</strong> Lj: {cliente.LOJA_CLIENTE}</span>

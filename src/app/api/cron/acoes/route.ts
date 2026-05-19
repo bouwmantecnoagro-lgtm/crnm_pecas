@@ -24,6 +24,7 @@ export async function GET(request: Request) {
     // Conjuntos para evitar duplicadas durante a MESMA execução do robô
     const clientesProcessados = new Set();
     const orcamentosProcessados = new Set();
+    const orcamentosReativacao = new Set();
 
     // 1. Buscar ações automáticas que já estão pendentes (evitar duplicadas de execuções anteriores)
     const { data: acoesPendentes, error: errAcoes } = await supabase
@@ -83,6 +84,7 @@ export async function GET(request: Request) {
     }
 
     // --- REGRA 2: PIPELINE COMERCIAL (FOLLOW-UP) ---
+    // --- REGRA 3: REATIVAÇÃO de orçamentos cancelados/vencidos nos últimos 30 dias ---
     const { data: orcamentos, error: errOrcamentos } = await supabase
       .from('crm_orcamentos')
       .select('*');
@@ -92,40 +94,82 @@ export async function GET(request: Request) {
     } else {
       const hoje = new Date();
       for (const o of orcamentos) {
-        if (!o.ORC_DATA_EMISSAO_ORCAMENTO) continue;
-        
-        const dataEmissao = new Date(o.ORC_DATA_EMISSAO_ORCAMENTO);
-        const diasAberto = Math.floor((hoje.getTime() - dataEmissao.getTime()) / (1000 * 60 * 60 * 24));
+        // ----- REGRA 2: follow-up em orçamentos abertos esfriando -----
+        if (o.ORC_DATA_EMISSAO_ORCAMENTO) {
+          const dataEmissao = new Date(o.ORC_DATA_EMISSAO_ORCAMENTO);
+          const diasAberto = Math.floor((hoje.getTime() - dataEmissao.getTime()) / (1000 * 60 * 60 * 24));
 
-        if (diasAberto > 15 && diasAberto < 45) {
-          if (orcamentosProcessados.has(o.ORC_NUMERO_ORCAMENTO)) continue;
+          if (diasAberto > 15 && diasAberto < 45) {
+            if (!orcamentosProcessados.has(o.ORC_NUMERO_ORCAMENTO)) {
+              const jaExiste = acoesPendentes?.some(a =>
+                String(a.numero_orcamento) === String(o.ORC_NUMERO_ORCAMENTO) &&
+                a.tipo === 'FOLLOW_UP_ORCAMENTO'
+              );
 
-          // Verifica se já existe follow-up para este orçamento
-          const jaExiste = acoesPendentes?.some(a => 
-            String(a.numero_orcamento) === String(o.ORC_NUMERO_ORCAMENTO) && 
-            a.tipo === 'FOLLOW_UP_ORCAMENTO'
-          );
+              if (!jaExiste) {
+                orcamentosProcessados.add(o.ORC_NUMERO_ORCAMENTO);
+                const payload = {
+                  titulo: `Follow-up de Orçamento Esfriando (#${o.ORC_NUMERO_ORCAMENTO})`,
+                  tipo: 'FOLLOW_UP_ORCAMENTO',
+                  prioridade: (o.ORC_VALOR_TOTAL || 0) > 5000 ? 'ALTA' : 'MEDIA',
+                  descricao: `O orçamento nº ${o.ORC_NUMERO_ORCAMENTO} no valor de R$ ${o.ORC_VALOR_TOTAL || 0} já tem ${diasAberto} dias.\nLigue para o cliente e tente o fechamento comercial.`,
+                  codigo_cliente: o.CODIGO_CLIENTE,
+                  loja_cliente: o.LOJA_CLIENTE,
+                  nome_cliente: o.CLIENTE_ORC,
+                  numero_orcamento: String(o.ORC_NUMERO_ORCAMENTO),
+                  vendedor_responsavel: o.ORC_CODIGO_VENDEDOR,
+                  nome_vendedor: o.ORC_NOME_VENDEDOR,
+                  origem: 'SISTEMA_AUTO',
+                  criado_por: 'SISTEMA',
+                  data_vencimento: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // +1 dia
+                };
 
-          if (!jaExiste) {
-            orcamentosProcessados.add(o.ORC_NUMERO_ORCAMENTO);
-            const payload = {
-              titulo: `Follow-up de Orçamento Esfriando (#${o.ORC_NUMERO_ORCAMENTO})`,
-              tipo: 'FOLLOW_UP_ORCAMENTO',
-              prioridade: (o.ORC_VALOR_TOTAL || 0) > 5000 ? 'ALTA' : 'MEDIA',
-              descricao: `O orçamento nº ${o.ORC_NUMERO_ORCAMENTO} no valor de R$ ${o.ORC_VALOR_TOTAL || 0} já tem ${diasAberto} dias.\nLigue para o cliente e tente o fechamento comercial.`,
-              codigo_cliente: o.CODIGO_CLIENTE,
-              loja_cliente: o.LOJA_CLIENTE,
-              nome_cliente: o.CLIENTE_ORC,
-              numero_orcamento: String(o.ORC_NUMERO_ORCAMENTO),
-              vendedor_responsavel: o.ORC_CODIGO_VENDEDOR,
-              nome_vendedor: o.ORC_NOME_VENDEDOR,
-              origem: 'SISTEMA_AUTO',
-              criado_por: 'SISTEMA',
-              data_vencimento: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // +1 dia
-            };
+                const { error } = await supabase.from('crm_acoes').insert(payload);
+                if (!error) acoesCriadas++;
+              }
+            }
+          }
+        }
 
-            const { error } = await supabase.from('crm_acoes').insert(payload);
-            if (!error) acoesCriadas++;
+        // ----- REGRA 3: reativação de orçamentos VENCIDOS ou CANCELADOS recentes -----
+        // STATUS_OVERRIDE indica cancelamento via CRM (vendedor já marcou "Sem Interesse") — não retorna o tema pra ele.
+        if (!o.STATUS_OVERRIDE) {
+          const statusErp = String(o.Status || o.STATUS || '').toUpperCase().trim();
+          if ((statusErp === 'VENCIDO' || statusErp === 'CANCELADO') && o.ORC_DATA_ORCAMENTO) {
+            const dataRef = new Date(String(o.ORC_DATA_ORCAMENTO) + 'T00:00:00');
+            const diasDesde = Math.floor((hoje.getTime() - dataRef.getTime()) / (1000 * 60 * 60 * 24));
+
+            if (diasDesde >= 0 && diasDesde <= 30) {
+              if (!orcamentosReativacao.has(o.ORC_NUMERO_ORCAMENTO)) {
+                const jaExiste = acoesPendentes?.some(a =>
+                  String(a.numero_orcamento) === String(o.ORC_NUMERO_ORCAMENTO) &&
+                  a.tipo === 'REATIVACAO_ORCAMENTO'
+                );
+
+                if (!jaExiste) {
+                  orcamentosReativacao.add(o.ORC_NUMERO_ORCAMENTO);
+                  const motivo = statusErp === 'VENCIDO' ? 'venceu' : 'foi cancelado';
+                  const payload = {
+                    titulo: `Reativar Orçamento ${statusErp} (#${o.ORC_NUMERO_ORCAMENTO})`,
+                    tipo: 'REATIVACAO_ORCAMENTO',
+                    prioridade: 'ALTA',
+                    descricao: `O orçamento nº ${o.ORC_NUMERO_ORCAMENTO} (R$ ${o.ORC_VALOR_TOTAL || 0}) ${motivo} há ${diasDesde} dia(s).\nContate o cliente e tente reativar a oferta — janela ainda quente.`,
+                    codigo_cliente: o.CODIGO_CLIENTE,
+                    loja_cliente: o.LOJA_CLIENTE,
+                    nome_cliente: o.CLIENTE_ORC,
+                    numero_orcamento: String(o.ORC_NUMERO_ORCAMENTO),
+                    vendedor_responsavel: o.ORC_CODIGO_VENDEDOR,
+                    nome_vendedor: o.ORC_NOME_VENDEDOR,
+                    origem: 'SISTEMA_AUTO',
+                    criado_por: 'SISTEMA',
+                    data_vencimento: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // +2 dias
+                  };
+
+                  const { error } = await supabase.from('crm_acoes').insert(payload);
+                  if (!error) acoesCriadas++;
+                }
+              }
+            }
           }
         }
       }

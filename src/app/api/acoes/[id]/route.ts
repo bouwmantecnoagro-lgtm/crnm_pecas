@@ -108,6 +108,39 @@ export async function PATCH(
         .eq('CODIGO_CLIENTE', updatedAcao.codigo_cliente);
     }
 
+    // Se SEM_INTERESSE e há orçamento vinculado, cancela o orçamento (só no Supabase, via STATUS_OVERRIDE).
+    // Atualiza todas as linhas (uma por produto) do mesmo número de orçamento.
+    if (body.resultado === 'SEM_INTERESSE' && updatedAcao?.numero_orcamento) {
+      await admin
+        .from('crm_orcamentos')
+        .update({ STATUS_OVERRIDE: 'CANCELADO' })
+        .eq('ORC_NUMERO_ORCAMENTO', String(updatedAcao.numero_orcamento));
+    }
+
+    // Se MAQUINA_OUTRA_MARCA, persiste a marca/modelo no cadastro do cliente.
+    // Permite oferecer consumíveis compatíveis depois e filtrar /clientes por marca concorrente.
+    if (
+      body.resultado === 'MAQUINA_OUTRA_MARCA' &&
+      body.marca_concorrente &&
+      updatedAcao?.codigo_cliente
+    ) {
+      const clienteUpdate: any = {
+        MARCA_CONCORRENTE: String(body.marca_concorrente).trim().toUpperCase(),
+        MODELO_CONCORRENTE: body.modelo_concorrente
+          ? String(body.modelo_concorrente).trim().toUpperCase()
+          : null,
+        DATA_MARCA_CONCORRENTE: new Date().toISOString(),
+      };
+      let q = admin
+        .from('crm_clientes')
+        .update(clienteUpdate)
+        .eq('CODIGO_CLIENTE', updatedAcao.codigo_cliente);
+      if (updatedAcao.loja_cliente) {
+        q = q.eq('LOJA_CLIENTE', updatedAcao.loja_cliente);
+      }
+      await q;
+    }
+
     return NextResponse.json(updatedAcao);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });

@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useState, useMemo, useDeferredValue } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { Loader2, Search, Calendar, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import Cliente360Modal from '@/components/Cliente360Modal';
 
 import { useData } from '@/contexts/DataContext';
+import { getStatusOrcamento } from '@/lib/orcamento';
 
 function formatDateUI(val: any) {
   if (!val) return '—';
@@ -33,24 +35,27 @@ function formatDateUI(val: any) {
 
 export default function OrcamentosPage() {
   const { orcamentos, loading } = useData();
+  const searchParams = useSearchParams();
   const [busca, setBusca] = useState('');
   const deferredBusca = useDeferredValue(busca);
 
   // Pagination
   const [paginaAtual, setPaginaAtual] = useState(1);
   const ITENS_POR_PAGINA = 50;
-  
-  // Advanced Filters
+
+  // Advanced Filters (inicializados a partir da URL — ex: /orcamentos?status=VENCIDO&periodoVenc=30)
   const [vendedorFiltro, setVendedorFiltro] = useState('');
   const [ordemFiltro, setOrdemFiltro] = useState(''); // 'maior' | 'menor' | ''
-  const [statusFiltro, setStatusFiltro] = useState('');
+  const [statusFiltro, setStatusFiltro] = useState(() => searchParams.get('status') || '');
+  // periodoVencFiltro: dias atrás (ex: '30') — filtra ORC_DATA_ORCAMENTO entre hoje-N e hoje
+  const [periodoVencFiltro, setPeriodoVencFiltro] = useState(() => searchParams.get('periodoVenc') || '');
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc' | 'desc'} | null>(null);
   const [cliente360, setCliente360] = useState<{ codigo: string, loja: string } | null>(null);
 
   // Reset pagination when filters change
   useEffect(() => {
     setPaginaAtual(1);
-  }, [deferredBusca, vendedorFiltro, ordemFiltro, statusFiltro, sortConfig]);
+  }, [deferredBusca, vendedorFiltro, ordemFiltro, statusFiltro, periodoVencFiltro, sortConfig]);
 
   const filtrados = useMemo(() => {
     let result = orcamentos.filter(o => {
@@ -59,10 +64,23 @@ export default function OrcamentosPage() {
                          (o.ORC_NUMERO_ORCAMENTO || '').toLowerCase().includes(term) || 
                          (o.CODIGO_PRODUTO_ORC || '').toLowerCase().includes(term);
       const passaVendedor = vendedorFiltro ? o.ORC_NOME_VENDEDOR === vendedorFiltro : true;
-      const statusObj = o.STATUS_ORCAMENTO || o.Status || o.STATUS || 'Aberto';
+      const statusObj = getStatusOrcamento(o) || 'ABERTO';
       const passaStatus = statusFiltro ? (statusObj.toLowerCase() === statusFiltro.toLowerCase()) : true;
-      
-      return passaBusca && passaVendedor && passaStatus;
+
+      let passaPeriodoVenc = true;
+      if (periodoVencFiltro) {
+        const dias = parseInt(periodoVencFiltro, 10);
+        if (!isNaN(dias) && dias > 0 && o.ORC_DATA_ORCAMENTO) {
+          const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
+          const limite = new Date(hoje); limite.setDate(limite.getDate() - dias);
+          const venc = new Date(String(o.ORC_DATA_ORCAMENTO) + 'T00:00:00');
+          passaPeriodoVenc = venc >= limite && venc <= hoje;
+        } else if (!o.ORC_DATA_ORCAMENTO) {
+          passaPeriodoVenc = false;
+        }
+      }
+
+      return passaBusca && passaVendedor && passaStatus && passaPeriodoVenc;
     });
 
     if (sortConfig) {
@@ -84,7 +102,7 @@ export default function OrcamentosPage() {
     }
     
     return result;
-  }, [orcamentos, deferredBusca, vendedorFiltro, ordemFiltro, statusFiltro, sortConfig]);
+  }, [orcamentos, deferredBusca, vendedorFiltro, ordemFiltro, statusFiltro, periodoVencFiltro, sortConfig]);
 
   const handleSort = (key: string) => {
     setSortConfig(current => {
@@ -141,19 +159,27 @@ export default function OrcamentosPage() {
             <option value="menor">Menor Valor R$ (Crescente)</option>
           </select>
           
-          <select 
+          <select
             className="bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-sm text-gray-300 focus:border-sky-500/50 transition-colors"
             value={statusFiltro} onChange={e => setStatusFiltro(e.target.value)}
           >
             <option value="">Todos os Status</option>
-            <option value="Aberto">Aberto</option>
-            <option value="Ganho">Ganho</option>
-            <option value="Perdido">Perdido</option>
+            <option value="ABERTO">Aberto</option>
+            <option value="FATURADO">Faturado</option>
+            <option value="CANCELADO">Cancelado</option>
+            <option value="VENCIDO">Vencido</option>
           </select>
-          
-          {(busca || vendedorFiltro || ordemFiltro || statusFiltro) && (
-            <button 
-              onClick={() => { setBusca(''); setVendedorFiltro(''); setOrdemFiltro(''); setStatusFiltro(''); setSortConfig(null); }}
+
+          {periodoVencFiltro && (
+            <span className="text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+              <Calendar size={12} /> Vencimento últimos {periodoVencFiltro} dias
+              <button onClick={() => setPeriodoVencFiltro('')} className="ml-1 hover:text-white"><X size={12} /></button>
+            </span>
+          )}
+
+          {(busca || vendedorFiltro || ordemFiltro || statusFiltro || periodoVencFiltro) && (
+            <button
+              onClick={() => { setBusca(''); setVendedorFiltro(''); setOrdemFiltro(''); setStatusFiltro(''); setPeriodoVencFiltro(''); setSortConfig(null); }}
               className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
             >
               <X size={14} /> Limpar
@@ -192,7 +218,7 @@ export default function OrcamentosPage() {
                       <div className="flex items-center gap-2 mb-1">
                         <div className="text-sky-300 font-mono text-xs">{o.CODIGO_PRODUTO_ORC}</div>
                         {(() => {
-                          const status = String(o.Status || o.STATUS || 'ABERTO').toUpperCase().trim();
+                          const status = getStatusOrcamento(o) || 'ABERTO';
                           if (status === 'FATURADO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">FATURADO</span>;
                           if (status === 'CANCELADO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/20 text-red-400 border border-red-500/20">CANCELADO</span>;
                           if (status === 'VENCIDO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/20">VENCIDO</span>;

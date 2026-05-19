@@ -6,18 +6,21 @@ export const dynamic = 'force-dynamic';
 
 const COLS_CLIENTES = [
   'id', 'FILIAL', 'CODIGO_CLIENTE', 'LOJA_CLIENTE', 'NOME_CLIENTE',
-  'CNPJ_CPF', 'CIDADE', 'UF', 'VENDEDOR_RESP', 'NOME_VENDEDOR_RESP',
+  'CNPJ_CPF', 'CNPJ_RAIZ', 'CIDADE', 'UF', 'VENDEDOR_RESP', 'NOME_VENDEDOR_RESP',
   'DDD', 'TELEFONE', 'CELULAR_WHATSAPP_CONTATO', 'EMAIL',
-  'DIAS_SEM_COMPRA', 'DATA_ULT_COMPRA', 'NF_12M', 'STATUS_BASE', 'updated_at'
+  'DIAS_SEM_COMPRA', 'DATA_ULT_COMPRA', 'NF_12M', 'STATUS_BASE',
+  'MARCA_CONCORRENTE', 'MODELO_CONCORRENTE', 'DATA_MARCA_CONCORRENTE',
+  'updated_at'
 ].join(',');
 
 // Coluna real no Supabase é "Status" (S maiúsculo, resto minúsculo)
+// STATUS_OVERRIDE é definido pelo CRM (ex: ação SEM_INTERESSE cancela). Prevalece sobre Status.
 const COLS_ORCAMENTOS = [
   'id', 'FILIAL_ORC', 'CODIGO_CLIENTE', 'LOJA_CLIENTE', 'CLIENTE_ORC',
   'ORC_DATA_EMISSAO_ORCAMENTO', 'ORC_DATA_ORCAMENTO', 'CODIGO_PRODUTO_ORC',
   'ORC_NUMERO_ORCAMENTO', 'ORC_SALDO_ORCAMENTO', 'ORC_VALOR_UNITARIO',
   'ORC_VALOR_TOTAL', 'ORC_CUSTO_PRODUTO', 'ORC_CODIGO_VENDEDOR',
-  'ORC_NOME_VENDEDOR', 'Status', 'updated_at'
+  'ORC_NOME_VENDEDOR', 'Status', 'STATUS_OVERRIDE', 'updated_at'
 ].join(',');
 
 // ATENÇÃO: a tabela crm_parquemaquinas NÃO tem coluna CODIGO_CLIENTE.

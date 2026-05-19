@@ -5,6 +5,7 @@ import { Loader2, Flame, Clock, Snowflake, TrendingUp, Zap, ReceiptText, Filter,
 import Link from 'next/link';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
 import { useData } from '@/contexts/DataContext';
+import { getStatusOrcamento } from '@/lib/orcamento';
 
 const PERIODOS = [
   { dias: 30, label: '30 dias' },
@@ -62,7 +63,7 @@ export default function PipelineOrcamentos() {
     congelados: { titulo: 'Congelados (>30 Dias)', cor: 'text-red-400', border: 'border-red-500/30', bg: 'bg-red-500/10', icone: <Snowflake size={16} />, items: [] as any[], total: 0 },
   };
 
-  const getStatus = (o: any) => String(o.Status || o.STATUS || '').toUpperCase().trim();
+  const getStatus = getStatusOrcamento;
   const orcAbertos = orcamentosFiltrados.filter(o => { const s = getStatus(o); return !s || s === 'ABERTO' || s === 'EM ABERTO'; });
   const orcFaturados = orcamentosFiltrados.filter(o => getStatus(o) === 'FATURADO');
   // Win Rate = FATURADO / (FATURADO + CANCELADO + VENCIDO). VENCIDO conta como perda (decisão 2026-05-12).

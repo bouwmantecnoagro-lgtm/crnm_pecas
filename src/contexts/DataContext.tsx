@@ -26,7 +26,10 @@ const DataContext = createContext<DataContextProps>({
 // v5: cache passou a ser segregado por user_id (chave inclui o sub do JWT).
 // Sem isso, vendedor A logando depois de vendedor B no mesmo browser via
 // cache de A → vazamento. Incrementar este número sempre que o formato mudar.
-const CACHE_VERSION = 5;
+// v6: orçamentos passaram a vir com STATUS_OVERRIDE (cancelamento via CRM).
+// v7: clientes passaram a vir com MARCA_CONCORRENTE / MODELO_CONCORRENTE / DATA_MARCA_CONCORRENTE.
+// v8: clientes passaram a vir com CNPJ_RAIZ (coluna gerada — agrupamento de filiais).
+const CACHE_VERSION = 8;
 const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hora
 
 function cacheKeys(userId: string) {

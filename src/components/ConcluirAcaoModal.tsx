@@ -22,6 +22,8 @@ interface ConcluirAcaoModalProps {
 export default function ConcluirAcaoModal({ acao, onClose, onSave }: ConcluirAcaoModalProps) {
   const [resultado, setResultado] = useState('');
   const [observacoes, setObservacoes] = useState('');
+  const [marcaConcorrente, setMarcaConcorrente] = useState('');
+  const [modeloConcorrente, setModeloConcorrente] = useState('');
   const [novaData, setNovaData] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 3);
@@ -29,17 +31,24 @@ export default function ConcluirAcaoModal({ acao, onClose, onSave }: ConcluirAca
   });
   const [saving, setSaving] = useState(false);
 
+  const isOutraMarca = resultado === 'MAQUINA_OUTRA_MARCA';
+  const marcaInvalida = isOutraMarca && !marcaConcorrente.trim();
+
   const handleSalvar = async () => {
     if (!resultado) return;
+    if (marcaInvalida) return;
     setSaving(true);
 
     const isReagendar = resultado === 'REAGENDAR';
-    const isSemContato = resultado === 'SEM_CONTATO';
 
     try {
       let finalStatus = 'CONCLUIDA';
-      if (['CLIENTE_INTERESSADO', 'REAGENDAR', 'SEM_CONTATO'].includes(resultado)) {
+      if (['CLIENTE_INTERESSADO', 'REAGENDAR', 'SEM_CONTATO', 'MAQUINA_OUTRA_MARCA'].includes(resultado)) {
         finalStatus = 'EM_ANDAMENTO';
+      } else if (resultado === 'SEM_INTERESSE') {
+        // SEM_INTERESSE vai para a coluna "Canceladas" do Kanban (não "Concluídas")
+        // e dispara o cancelamento do orçamento vinculado no backend.
+        finalStatus = 'CANCELADA';
       }
 
       const body: any = {
@@ -50,6 +59,11 @@ export default function ConcluirAcaoModal({ acao, onClose, onSave }: ConcluirAca
 
       if (isReagendar) {
         body.data_vencimento = novaData;
+      }
+
+      if (isOutraMarca) {
+        body.marca_concorrente = marcaConcorrente.trim();
+        body.modelo_concorrente = modeloConcorrente.trim() || null;
       }
 
 
@@ -142,6 +156,37 @@ export default function ConcluirAcaoModal({ acao, onClose, onSave }: ConcluirAca
             </div>
           )}
 
+          {/* Marca + Modelo concorrente */}
+          {isOutraMarca && (
+            <div className="animate-in slide-in-from-top-2 duration-200 grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-purple-400 mb-2">
+                  Marca <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={marcaConcorrente}
+                  onChange={e => setMarcaConcorrente(e.target.value)}
+                  placeholder="John Deere, Kuhn, JF..."
+                  className="w-full bg-black/30 border border-purple-500/20 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-purple-500/50 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-purple-400 mb-2">Modelo</label>
+                <input
+                  type="text"
+                  value={modeloConcorrente}
+                  onChange={e => setModeloConcorrente(e.target.value)}
+                  placeholder="Opcional — ex: 6110J"
+                  className="w-full bg-black/30 border border-purple-500/20 rounded-lg px-3 py-2.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-purple-500/50 transition-all"
+                />
+              </div>
+              <p className="col-span-2 text-[10px] text-purple-300/70">
+                Vai pro cadastro do cliente — pra oferecer consumíveis compatíveis depois.
+              </p>
+            </div>
+          )}
+
           {/* Observações */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Observações</label>
@@ -162,7 +207,7 @@ export default function ConcluirAcaoModal({ acao, onClose, onSave }: ConcluirAca
           </button>
           <button
             onClick={handleSalvar}
-            disabled={saving || !resultado}
+            disabled={saving || !resultado || marcaInvalida}
             className="px-5 py-2 text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-500 hover:to-sky-500 rounded-lg transition-all disabled:opacity-40 disabled:pointer-events-none flex items-center gap-2 shadow-lg shadow-emerald-500/20"
           >
             <CheckCircle2 size={14} />

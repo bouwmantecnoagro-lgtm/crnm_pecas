@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useDeferredValue } from 'react';
-import { Loader2, MapPin, Search, Tag, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Loader2, MapPin, Search, Tag, X, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import Cliente360Modal from '@/components/Cliente360Modal';
 
 import { useData } from '@/contexts/DataContext';
@@ -19,6 +19,8 @@ export default function ClientesPage() {
   const [statusFiltro, setStatusFiltro] = useState('');
   const [ufFiltro, setUfFiltro] = useState('');
   const [diasFiltro, setDiasFiltro] = useState('');
+  const [marcaConcFiltro, setMarcaConcFiltro] = useState('');
+  const [grupoFiltro, setGrupoFiltro] = useState(''); // '' | '__ANY__' | '<cnpj_raiz>'
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc' | 'desc'} | null>(null);
 
   const [cliente360, setCliente360] = useState<{ codigo: string, loja: string } | null>(null);
@@ -28,7 +30,22 @@ export default function ClientesPage() {
   // Reset pagina current qnd os filtros mudarem
   useEffect(() => {
     setPaginaAtual(1);
-  }, [deferredBusca, statusFiltro, ufFiltro, diasFiltro]);
+  }, [deferredBusca, statusFiltro, ufFiltro, diasFiltro, marcaConcFiltro, grupoFiltro]);
+
+  const marcasConcorrentes = useMemo(
+    () => Array.from(new Set(clientes.map(c => c.MARCA_CONCORRENTE).filter(Boolean))).sort(),
+    [clientes],
+  );
+
+  // Contagem por raiz de CNPJ/CPF — usado pra detectar grupos (2+ clientes com mesma raiz).
+  const gruposCount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of clientes) {
+      if (!c.CNPJ_RAIZ) continue;
+      m.set(c.CNPJ_RAIZ, (m.get(c.CNPJ_RAIZ) || 0) + 1);
+    }
+    return m;
+  }, [clientes]);
 
   const filtrados = useMemo(() => {
     if (!clientes) return [];
@@ -51,9 +68,20 @@ export default function ClientesPage() {
       if (diasFiltro === '90') passaDias = c.DIAS_SEM_COMPRA && c.DIAS_SEM_COMPRA > 90;
       if (diasFiltro === '120') passaDias = c.DIAS_SEM_COMPRA && c.DIAS_SEM_COMPRA > 120;
 
-      return passaBusca && passaStatus && passaUf && passaDias;
+      let passaMarca = true;
+      if (marcaConcFiltro === '__ANY__') passaMarca = !!c.MARCA_CONCORRENTE;
+      else if (marcaConcFiltro) passaMarca = c.MARCA_CONCORRENTE === marcaConcFiltro;
+
+      let passaGrupo = true;
+      if (grupoFiltro === '__ANY__') {
+        passaGrupo = !!c.CNPJ_RAIZ && (gruposCount.get(c.CNPJ_RAIZ) || 0) > 1;
+      } else if (grupoFiltro) {
+        passaGrupo = c.CNPJ_RAIZ === grupoFiltro;
+      }
+
+      return passaBusca && passaStatus && passaUf && passaDias && passaMarca && passaGrupo;
     });
-  }, [clientes, deferredBusca, statusFiltro, ufFiltro, diasFiltro, isBuscandoCurto]);
+  }, [clientes, deferredBusca, statusFiltro, ufFiltro, diasFiltro, marcaConcFiltro, grupoFiltro, gruposCount, isBuscandoCurto]);
 
   const filtradosOrdenados = useMemo(() => {
     let result = [...filtrados];
@@ -138,9 +166,35 @@ export default function ClientesPage() {
             <option value="120">Evasão (&gt; 120 dias)</option>
           </select>
 
-          {(busca || statusFiltro || ufFiltro || diasFiltro || sortConfig) && (
+          <select
+            className="bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-sm text-gray-300 focus:border-purple-500/50 transition-colors"
+            value={marcaConcFiltro} onChange={e => setMarcaConcFiltro(e.target.value)}
+            title="Filtra clientes com máquina concorrente registrada (via ação MAQUINA_OUTRA_MARCA)"
+          >
+            <option value="">Qualquer Marca Concorrente</option>
+            <option value="__ANY__">Apenas com máquina concorrente</option>
+            {marcasConcorrentes.map(m => <option key={m as string} value={m as string}>{m as string}</option>)}
+          </select>
+
+          <select
+            className="bg-black/40 border border-white/10 rounded-lg px-4 py-2 text-sm text-gray-300 focus:border-sky-500/50 transition-colors"
+            value={grupoFiltro} onChange={e => setGrupoFiltro(e.target.value)}
+            title="Agrupa clientes pelo mesmo CNPJ raiz (matriz + filiais) ou pelo CPF"
+          >
+            <option value="">Qualquer Grupo</option>
+            <option value="__ANY__">Apenas clientes em grupo (2+ filiais)</option>
+          </select>
+
+          {grupoFiltro && grupoFiltro !== '__ANY__' && (
+            <span className="text-xs font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
+              <Users size={12} /> Grupo {grupoFiltro}
+              <button onClick={() => setGrupoFiltro('')} className="ml-1 hover:text-white"><X size={12} /></button>
+            </span>
+          )}
+
+          {(busca || statusFiltro || ufFiltro || diasFiltro || marcaConcFiltro || grupoFiltro || sortConfig) && (
             <button
-              onClick={() => { setBusca(''); setStatusFiltro(''); setUfFiltro(''); setDiasFiltro(''); setSortConfig(null); }}
+              onClick={() => { setBusca(''); setStatusFiltro(''); setUfFiltro(''); setDiasFiltro(''); setMarcaConcFiltro(''); setGrupoFiltro(''); setSortConfig(null); }}
               className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
             >
               <X size={14} /> Limpar
@@ -181,7 +235,26 @@ export default function ClientesPage() {
                     className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
                   >
                     <td className="px-6 py-4">
-                      <div className="font-medium text-white group-hover:text-emerald-300 transition-colors">{c.NOME_CLIENTE || 'N/A'}</div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-white group-hover:text-emerald-300 transition-colors">{c.NOME_CLIENTE || 'N/A'}</span>
+                        {c.CNPJ_RAIZ && (gruposCount.get(c.CNPJ_RAIZ) || 0) > 1 && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setGrupoFiltro(c.CNPJ_RAIZ); }}
+                            className="text-[10px] font-bold uppercase tracking-wider bg-sky-500/15 text-sky-300 border border-sky-500/30 px-2 py-0.5 rounded-full flex items-center gap-1 hover:bg-sky-500/25 transition-colors"
+                            title={`Ver as ${gruposCount.get(c.CNPJ_RAIZ)} filiais do grupo`}
+                          >
+                            <Users size={10} /> Grupo {gruposCount.get(c.CNPJ_RAIZ)}
+                          </button>
+                        )}
+                        {c.MARCA_CONCORRENTE && (
+                          <span
+                            className="text-[10px] font-bold uppercase tracking-wider bg-purple-500/15 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded-full"
+                            title={c.MODELO_CONCORRENTE ? `Modelo: ${c.MODELO_CONCORRENTE}` : 'Marca concorrente'}
+                          >
+                            🚜 {c.MARCA_CONCORRENTE}
+                          </span>
+                        )}
+                      </div>
                       <div className="text-xs text-gray-500 font-mono mt-1">ID: {c.CODIGO_CLIENTE} Lj: {c.LOJA_CLIENTE}</div>
                     </td>
                     <td className="px-6 py-4">
