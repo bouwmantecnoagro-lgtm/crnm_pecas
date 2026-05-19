@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo, useDeferredValue } from 'react';
+import { Suspense, useEffect, useState, useMemo, useDeferredValue } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Loader2, Search, Calendar, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import Cliente360Modal from '@/components/Cliente360Modal';
@@ -33,7 +33,21 @@ function formatDateUI(val: any) {
   return s;
 }
 
+// Next 16 exige Suspense em torno de qualquer hook que lê query string num Client Component
+// pré-renderizado estaticamente. Sem isso o `next build` falha em "Generating static pages".
 export default function OrcamentosPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-64">
+        <Loader2 size={32} className="text-sky-400 animate-spin" />
+      </div>
+    }>
+      <OrcamentosContent />
+    </Suspense>
+  );
+}
+
+function OrcamentosContent() {
   const { orcamentos, loading } = useData();
   const searchParams = useSearchParams();
   const [busca, setBusca] = useState('');
