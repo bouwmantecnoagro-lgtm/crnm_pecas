@@ -158,7 +158,7 @@ export default function PipelineOrcamentos() {
          </div>
          <div className="glass-panel p-4 border border-amber-500/20 bg-amber-500/5 flex items-center justify-between">
             <div>
-               <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Total Faturado</p>
+               <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-1">Total Ganho</p>
                <h3 className="text-2xl font-bold text-amber-400">R$ {totalFaturado.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}</h3>
             </div>
             <Zap className="text-amber-500/50" size={32} />

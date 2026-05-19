@@ -446,7 +446,7 @@ export default function Dashboard() {
               <KpiCard
                 title="Win Rate (Qtd)"
                 value={`${winRateQtd.toFixed(1)}%`}
-                subtitle={`${orcFaturados.length} faturados de ${fechadosQtd} fechados`}
+                subtitle={`${orcFaturados.length} ganhos de ${fechadosQtd} fechados`}
                 icon={<TrendingUp className="text-emerald-400" />}
                 accentColor="emerald"
                 tooltip="% de orçamentos faturados sobre o total fechado, por contagem. Fórmula: FATURADO / (FATURADO + CANCELADO + VENCIDO). VENCIDO conta como perda (orçamento que expirou sem fechar)."
@@ -460,12 +460,12 @@ export default function Dashboard() {
                 tooltip="% do valor (R$) faturado sobre o valor total fechado. Fórmula: Σ R$ FATURADO / Σ R$ (FATURADO + CANCELADO + VENCIDO). Pode divergir muito do Win Rate por Qtd quando há orçamentos com tickets muito diferentes."
               />
               <KpiCard
-                title="Taxa de Cancelamento"
+                title="Taxa de Perdidos"
                 value={`${taxaCancelamento.toFixed(1)}%`}
-                subtitle={`${orcCancelados.length} cancelados`}
+                subtitle={`${orcCancelados.length} perdidos`}
                 icon={<X className="text-red-400" />}
                 accentColor="red"
-                tooltip="% de orçamentos cancelados sobre o total fechado. Fórmula: CANCELADO / (FATURADO + CANCELADO + VENCIDO). Indica perdas ativas (cliente desistiu/recusou)."
+                tooltip="% de orçamentos perdidos (CANCELADO no ERP) sobre o total fechado. Fórmula: CANCELADO / (FATURADO + CANCELADO + VENCIDO). Indica perdas ativas (cliente desistiu/recusou)."
               />
               <KpiCard
                 title="Taxa de Vencimento"
@@ -704,12 +704,12 @@ export default function Dashboard() {
                   <th className="py-2 font-semibold">#</th>
                   <th className="py-2 font-semibold">Vendedor</th>
                   <th className="py-2 text-center font-semibold">Fechados</th>
-                  <th className="py-2 text-center font-semibold text-emerald-400">Faturados</th>
-                  <th className="py-2 text-center font-semibold text-red-400">Cancel.</th>
+                  <th className="py-2 text-center font-semibold text-emerald-400">Ganhos</th>
+                  <th className="py-2 text-center font-semibold text-red-400">Perdidos</th>
                   <th className="py-2 text-center font-semibold text-amber-400">Vencidos</th>
                   <th className="py-2 text-right font-semibold">Win Rate (Qtd)</th>
                   <th className="py-2 text-right font-semibold">Win Rate (R$)</th>
-                  <th className="py-2 text-right font-semibold">R$ Faturado</th>
+                  <th className="py-2 text-right font-semibold">R$ Ganho</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -786,7 +786,7 @@ export default function Dashboard() {
           <div className="flex flex-col justify-center gap-6 h-[250px] w-full">
             <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400 mb-1">Total Faturado</p>
+                <p className="text-sm text-gray-400 mb-1">Total Ganho</p>
                 <h3 className="text-2xl font-bold text-emerald-400">R$ {totalFaturado.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}</h3>
               </div>
               <div className="p-3 bg-emerald-500/10 rounded-full">
@@ -795,7 +795,7 @@ export default function Dashboard() {
             </div>
             <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400 mb-1">Total Cancelado + Vencido</p>
+                <p className="text-sm text-gray-400 mb-1">Total Perdido + Vencido</p>
                 <h3 className="text-2xl font-bold text-red-400">R$ {(totalCancelado + totalVencido).toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}</h3>
               </div>
               <div className="p-3 bg-red-500/10 rounded-full">
@@ -804,7 +804,7 @@ export default function Dashboard() {
             </div>
             <div className="bg-white/5 border border-white/10 rounded-xl p-4 flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-400 mb-1">Ticket Médio (Faturados)</p>
+                <p className="text-sm text-gray-400 mb-1">Ticket Médio (Ganhos)</p>
                 <h3 className="text-2xl font-bold text-sky-400">R$ {orcFaturados.length > 0 ? (totalFaturado / orcFaturados.length).toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0}) : '0'}</h3>
               </div>
               <div className="p-3 bg-sky-500/10 rounded-full">

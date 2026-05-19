@@ -6,7 +6,7 @@ import { Loader2, Search, Calendar, X, ChevronLeft, ChevronRight } from 'lucide-
 import Cliente360Modal from '@/components/Cliente360Modal';
 
 import { useData } from '@/contexts/DataContext';
-import { getStatusOrcamento } from '@/lib/orcamento';
+import { getStatusOrcamento, labelStatusOrcamento } from '@/lib/orcamento';
 
 function formatDateUI(val: any) {
   if (!val) return '—';
@@ -179,8 +179,8 @@ function OrcamentosContent() {
           >
             <option value="">Todos os Status</option>
             <option value="ABERTO">Aberto</option>
-            <option value="FATURADO">Faturado</option>
-            <option value="CANCELADO">Cancelado</option>
+            <option value="FATURADO">Ganho</option>
+            <option value="CANCELADO">Perdido</option>
             <option value="VENCIDO">Vencido</option>
           </select>
 
@@ -233,10 +233,11 @@ function OrcamentosContent() {
                         <div className="text-sky-300 font-mono text-xs">{o.CODIGO_PRODUTO_ORC}</div>
                         {(() => {
                           const status = getStatusOrcamento(o) || 'ABERTO';
-                          if (status === 'FATURADO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">FATURADO</span>;
-                          if (status === 'CANCELADO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/20 text-red-400 border border-red-500/20">CANCELADO</span>;
-                          if (status === 'VENCIDO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/20">VENCIDO</span>;
-                          return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/20">{status}</span>;
+                          const label = labelStatusOrcamento(status);
+                          if (status === 'FATURADO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/20">{label}</span>;
+                          if (status === 'CANCELADO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/20 text-red-400 border border-red-500/20">{label}</span>;
+                          if (status === 'VENCIDO') return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/20">{label}</span>;
+                          return <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-500/20 text-sky-400 border border-sky-500/20">{label}</span>;
                         })()}
                       </div>
                       <div className="text-[10px] text-gray-500 mt-1 uppercase tracking-wider">Número: {o.ORC_NUMERO_ORCAMENTO}</div>
