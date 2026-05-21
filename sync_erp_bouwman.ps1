@@ -173,6 +173,30 @@ try {
         }
 
         Write-Log "Todos os lotes enviados com sucesso!"
+
+        # E) Cleanup de fantasmas: orcamentos no Supabase que o ERP nao devolve mais
+        # (geralmente porque viraram pedido faturado e foram arquivados pra historico).
+        # Envia apenas os IDs com STATUS = ABERTO ou VENCIDO (estados mutaveis).
+        # FATURADO/CANCELADO sao terminais e nao acumulam fantasmas.
+        if ($PayloadObj.ContainsKey("Orcamentos")) {
+            $idsAtivos = @()
+            foreach ($o in $PayloadObj["Orcamentos"]) {
+                $st = "$($o.STATUS)".Trim().ToUpper()
+                if ($st -eq "ABERTO" -or $st -eq "EM ABERTO" -or $st -eq "VENCIDO") {
+                    $prod = "$($o.CODIGO_PRODUTO_ORC)".Trim()
+                    $idsAtivos += "$($o.FILIAL_ORC)_$($o.ORC_NUMERO_ORCAMENTO)_$prod"
+                }
+            }
+            Write-Log "Cleanup: enviando $($idsAtivos.Count) IDs ativos (ABERTO/VENCIDO) ao endpoint de limpeza..."
+            $CleanupPayload = @{ OrcamentosAtivos = $idsAtivos } | ConvertTo-Json -Depth 4 -Compress
+            $CleanupBytes = [System.Text.Encoding]::UTF8.GetBytes($CleanupPayload)
+            try {
+                $CleanupResp = Invoke-RestMethod -Uri "$ApiEndpoint/cleanup" -Method Post -Headers $Headers -Body $CleanupBytes
+                Write-Log "Cleanup OK: $($CleanupResp.message)"
+            } catch {
+                Write-Log "AVISO cleanup falhou (sync principal OK): $($_.Exception.Message)"
+            }
+        }
     } else {
         Write-Log "AVISO: As queries retornaram 0 resultados somados. O POST foi ignorado."
     }
