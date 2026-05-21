@@ -123,7 +123,33 @@ export default function Dashboard() {
   const totalAtivos = useMemo(() => clientesFiltrados.filter((c: any) => c.STATUS_BASE === 'ATIVO').length, [clientesFiltrados]);
 
   // Buckets pela nova coluna STATUS
-  const orcAbertos = useMemo(() => orcamentosFiltrados.filter((o: any) => { const s = getStatusOrc(o); return !s || s === 'ABERTO' || s === 'EM ABERTO'; }), [orcamentosFiltrados]);
+  // NOTA: a sync atual (sync_erp_bouwman.ps1) não traz [STATUS] do Protheus, então
+  // 100% dos registros chegam ao Supabase como 'ABERTO' (default do sanitizador em
+  // src/app/api/sync/route.ts:108). Sem o filtro extra por data de validade abaixo,
+  // o card "Orçamentos Abertos" somaria TODOS os itens dos últimos 365 dias
+  // (faturados + cancelados + vencidos + abertos reais), inflando ~10x.
+  // TODO: quando a sync passar a trazer [STATUS], remover o filtro de data extra.
+  const hojeMs = useMemo(() => { const d = new Date(); d.setHours(0,0,0,0); return d.getTime(); }, []);
+  const orcAbertos = useMemo(() => orcamentosFiltrados.filter((o: any) => {
+    const s = getStatusOrc(o);
+    if (s && s !== 'ABERTO' && s !== 'EM ABERTO') return false;
+    // Exclui vencidos: status chegou 'ABERTO' mas ORC_DATA_ORCAMENTO (validade) < hoje.
+    // '2030-12-31' é sentinela "Indefinido" do Protheus — não conta como vencido.
+    const venc = o.ORC_DATA_ORCAMENTO;
+    if (venc) {
+      const ds = String(venc).split('T')[0];
+      if (ds !== '2030-12-31') {
+        const validade = new Date(ds + 'T00:00:00').getTime();
+        if (!isNaN(validade) && validade < hojeMs) return false;
+      }
+    }
+    return true;
+  }), [orcamentosFiltrados, hojeMs]);
+
+  // Quantidade de orçamentos únicos (cada ORC_NUMERO_ORCAMENTO tem N linhas de item).
+  // Usado no subtitle do card pra evitar a confusão "2880 orçamentos pendentes" quando
+  // na verdade são 2880 ITENS distribuídos em ~N orçamentos.
+  const orcAbertosUnicos = useMemo(() => new Set(orcAbertos.map((o: any) => o.ORC_NUMERO_ORCAMENTO).filter(Boolean)).size, [orcAbertos]);
   const orcFaturados = useMemo(() => orcamentosFiltrados.filter((o: any) => getStatusOrc(o) === 'FATURADO'), [orcamentosFiltrados]);
   const orcCancelados = useMemo(() => orcamentosFiltrados.filter((o: any) => getStatusOrc(o) === 'CANCELADO'), [orcamentosFiltrados]);
   const orcVencidos = useMemo(() => orcamentosFiltrados.filter((o: any) => getStatusOrc(o) === 'VENCIDO'), [orcamentosFiltrados]);
@@ -408,11 +434,11 @@ export default function Dashboard() {
               <KpiCard
                 title="Orçamentos Abertos"
                 value={`R$ ${totalAbertos.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`}
-                subtitle={`${orcAbertos.length} orçamentos pendentes`}
+                subtitle={`${orcAbertosUnicos} orçamentos • ${orcAbertos.length} itens`}
                 icon={<ReceiptText className="text-blue-400" />}
                 accentColor="sky"
                 href="/orcamentos"
-                tooltip="Soma do valor (R$) dos orçamentos com STATUS = ABERTO no período. Ainda não foram fechados (faturados, cancelados ou vencidos) — é o pipeline ativo."
+                tooltip="Soma do valor (R$) dos itens de orçamentos cuja validade ainda não venceu. Pipeline ativo, com data de validade futura."
               />
               <KpiCard
                 title="Ações Pendentes"
