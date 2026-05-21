@@ -10,6 +10,7 @@ import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
 
 import { useData } from '@/contexts/DataContext';
 import { getStatusOrcamento as getStatusOrc, STATUS_FECHADOS } from '@/lib/orcamento';
+import { buildIndiceVendasInternas } from '@/lib/vendas-internas';
 
 const PERIODOS = [
   { dias: 30, label: '30 dias' },
@@ -29,6 +30,9 @@ export default function Dashboard() {
   const [fVendedor, setFVendedor] = useState('');
   const [fFilial, setFFilial] = useState('');
   const [fPeriodoDias, setFPeriodoDias] = useState(90);
+  // Default = true: vendas para empresas do grupo Bouwman ficam fora dos KPIs.
+  // Toggle permite incluir caso o usuário queira analisar o pipeline interno.
+  const [fExcluirInternos, setFExcluirInternos] = useState(true);
 
   // Filtros adicionais (refinamento dentro do bloco Cross-Sell)
   const [crossFilial, setCrossFilial] = useState('');
@@ -71,13 +75,18 @@ export default function Dashboard() {
     return d;
   }, [fPeriodoDias]);
 
+  // Índice de clientes do grupo Bouwman (CODIGO_CLIENTE_LOJA_CLIENTE → true).
+  // Construído uma vez sobre todo o universo de clientes, independente de filtros.
+  const indiceVendasInternas = useMemo(() => buildIndiceVendasInternas(clientes), [clientes]);
+
   // === Aplicação dos filtros globais a cada coleção ===
   // Clientes: filtro de período não se aplica (carteira é estado atual)
   const clientesFiltrados = useMemo(() => clientes.filter((c: any) => {
     if (fVendedor && String(c.VENDEDOR_RESP || '') !== fVendedor) return false;
     if (fFilial && String(c.FILIAL || '') !== fFilial) return false;
+    if (fExcluirInternos && indiceVendasInternas.has(`${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`)) return false;
     return true;
-  }), [clientes, fVendedor, fFilial]);
+  }), [clientes, fVendedor, fFilial, fExcluirInternos, indiceVendasInternas]);
 
   const orcamentosFiltrados = useMemo(() => orcamentos.filter((o: any) => {
     if (fVendedor && String(o.ORC_CODIGO_VENDEDOR || '') !== fVendedor) return false;
@@ -86,8 +95,9 @@ export default function Dashboard() {
       const d = new Date(o.ORC_DATA_EMISSAO_ORCAMENTO);
       if (!isNaN(d.getTime()) && d < dataLimite) return false;
     }
+    if (fExcluirInternos && indiceVendasInternas.has(`${o.CODIGO_CLIENTE}_${o.LOJA_CLIENTE}`)) return false;
     return true;
-  }), [orcamentos, fVendedor, fFilial, dataLimite]);
+  }), [orcamentos, fVendedor, fFilial, dataLimite, fExcluirInternos, indiceVendasInternas]);
 
   const maquinasFiltradas = useMemo(() => maquinas.filter((m: any) => {
     if (nomeVendedorSelecionado) {
@@ -276,12 +286,14 @@ export default function Dashboard() {
   }, [maquinas]);
 
   const semDados = clientes.length === 0 && orcamentos.length === 0 && maquinas.length === 0;
-  const filtroAtivo = !!(fVendedor || fFilial || fPeriodoDias !== 90);
+  // fExcluirInternos = true é o default — só conta como "filtro ativo" se for desligado.
+  const filtroAtivo = !!(fVendedor || fFilial || fPeriodoDias !== 90 || !fExcluirInternos);
 
   function limparFiltros() {
     setFVendedor('');
     setFFilial('');
     setFPeriodoDias(90);
+    setFExcluirInternos(true);
   }
 
   if (loading) {
@@ -365,6 +377,22 @@ export default function Dashboard() {
         >
           {PERIODOS.map(p => <option key={p.dias} value={p.dias}>{p.label}</option>)}
         </select>
+        <label
+          className={`flex items-center gap-2 text-sm rounded px-3 py-1.5 border cursor-pointer transition-colors ${
+            fExcluirInternos
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200 hover:bg-emerald-500/15'
+              : 'bg-amber-500/10 border-amber-500/30 text-amber-200 hover:bg-amber-500/15'
+          }`}
+          title="Vendas para outras empresas do grupo Bouwman (8 razões sociais identificadas). Excluir é o default para refletir vendas externas reais."
+        >
+          <input
+            type="checkbox"
+            checked={fExcluirInternos}
+            onChange={e => setFExcluirInternos(e.target.checked)}
+            className="accent-emerald-500"
+          />
+          <span className="text-xs font-medium">Excluir vendas internas</span>
+        </label>
         {filtroAtivo && (
           <button onClick={limparFiltros} className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 px-2 py-1.5 transition-colors ml-auto">
             <RotateCcw size={12} /> Limpar filtros
