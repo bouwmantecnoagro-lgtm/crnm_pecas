@@ -12,7 +12,7 @@ function formatDateUI(val: any) {
   if (!val) return '—';
   const s = String(val);
   if (s === '2030-12-31' || s.includes('2030-12-31')) return 'Indefinido';
-  
+
   const match = s.match(/^\/Date\((\d+)\)\/$/);
   if (match) {
     const d = new Date(parseInt(match[1], 10));
@@ -20,17 +20,43 @@ function formatDateUI(val: any) {
     const d2 = new Date(d.getTime() + d.getTimezoneOffset() * 60000);
     return d2.toLocaleDateString('pt-BR');
   }
-  
+
   if (/^\d{8}$/.test(s)) {
     return `${s.substring(6,8)}/${s.substring(4,6)}/${s.substring(0,4)}`;
   }
-  
+
   if (s.includes('-')) {
     const [y, m, d] = s.split('T')[0].split('-');
     if (y && m && d) return `${d}/${m}/${y}`;
   }
-  
+
   return s;
+}
+
+// Normaliza os 3 formatos de data do ERP para Date local meia-noite.
+function parseOrcDate(val: any): Date | null {
+  if (!val) return null;
+  const s = String(val);
+  const match = s.match(/^\/Date\((\d+)\)\/$/);
+  if (match) {
+    const d = new Date(parseInt(match[1], 10));
+    return new Date(d.getTime() + d.getTimezoneOffset() * 60000);
+  }
+  if (/^\d{8}$/.test(s)) {
+    return new Date(`${s.substring(0,4)}-${s.substring(4,6)}-${s.substring(6,8)}T00:00:00`);
+  }
+  if (s.includes('-')) {
+    return new Date(s.split('T')[0] + 'T00:00:00');
+  }
+  return null;
+}
+
+function dentroIntervalo(d: Date | null, de: string, ate: string): boolean {
+  if (!de && !ate) return true;
+  if (!d) return false;
+  if (de && d < new Date(de + 'T00:00:00')) return false;
+  if (ate && d > new Date(ate + 'T23:59:59')) return false;
+  return true;
 }
 
 // Next 16 exige Suspense em torno de qualquer hook que lê query string num Client Component
@@ -63,13 +89,17 @@ function OrcamentosContent() {
   const [statusFiltro, setStatusFiltro] = useState(() => searchParams.get('status') || '');
   // periodoVencFiltro: dias atrás (ex: '30') — filtra ORC_DATA_ORCAMENTO entre hoje-N e hoje
   const [periodoVencFiltro, setPeriodoVencFiltro] = useState(() => searchParams.get('periodoVenc') || '');
+  const [emissaoDe, setEmissaoDe] = useState(() => searchParams.get('emissaoDe') || '');
+  const [emissaoAte, setEmissaoAte] = useState(() => searchParams.get('emissaoAte') || '');
+  const [vencDe, setVencDe] = useState(() => searchParams.get('vencDe') || '');
+  const [vencAte, setVencAte] = useState(() => searchParams.get('vencAte') || '');
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc' | 'desc'} | null>(null);
   const [cliente360, setCliente360] = useState<{ codigo: string, loja: string } | null>(null);
 
   // Reset pagination when filters change
   useEffect(() => {
     setPaginaAtual(1);
-  }, [deferredBusca, vendedorFiltro, ordemFiltro, statusFiltro, periodoVencFiltro, sortConfig]);
+  }, [deferredBusca, vendedorFiltro, ordemFiltro, statusFiltro, periodoVencFiltro, emissaoDe, emissaoAte, vencDe, vencAte, sortConfig]);
 
   const filtrados = useMemo(() => {
     let result = orcamentos.filter(o => {
@@ -94,7 +124,10 @@ function OrcamentosContent() {
         }
       }
 
-      return passaBusca && passaVendedor && passaStatus && passaPeriodoVenc;
+      const passaEmissao = dentroIntervalo(parseOrcDate(o.ORC_DATA_EMISSAO_ORCAMENTO), emissaoDe, emissaoAte);
+      const passaVenc = dentroIntervalo(parseOrcDate(o.ORC_DATA_ORCAMENTO), vencDe, vencAte);
+
+      return passaBusca && passaVendedor && passaStatus && passaPeriodoVenc && passaEmissao && passaVenc;
     });
 
     if (sortConfig) {
@@ -116,7 +149,7 @@ function OrcamentosContent() {
     }
     
     return result;
-  }, [orcamentos, deferredBusca, vendedorFiltro, ordemFiltro, statusFiltro, periodoVencFiltro, sortConfig]);
+  }, [orcamentos, deferredBusca, vendedorFiltro, ordemFiltro, statusFiltro, periodoVencFiltro, emissaoDe, emissaoAte, vencDe, vencAte, sortConfig]);
 
   const handleSort = (key: string) => {
     setSortConfig(current => {
@@ -184,6 +217,38 @@ function OrcamentosContent() {
             <option value="VENCIDO">Vencido</option>
           </select>
 
+          <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5">
+            <Calendar size={12} className="text-gray-500" />
+            <span className="text-[11px] uppercase tracking-wider text-gray-500 mr-1">Emissão</span>
+            <input
+              type="date" aria-label="Emissão de"
+              value={emissaoDe} onChange={e => setEmissaoDe(e.target.value)}
+              className="bg-transparent text-xs text-gray-200 focus:outline-none [color-scheme:dark]"
+            />
+            <span className="text-gray-600 text-xs">→</span>
+            <input
+              type="date" aria-label="Emissão até"
+              value={emissaoAte} onChange={e => setEmissaoAte(e.target.value)}
+              className="bg-transparent text-xs text-gray-200 focus:outline-none [color-scheme:dark]"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 bg-black/40 border border-white/10 rounded-lg px-2.5 py-1.5">
+            <Calendar size={12} className="text-gray-500" />
+            <span className="text-[11px] uppercase tracking-wider text-gray-500 mr-1">Vencimento</span>
+            <input
+              type="date" aria-label="Vencimento de"
+              value={vencDe} onChange={e => setVencDe(e.target.value)}
+              className="bg-transparent text-xs text-gray-200 focus:outline-none [color-scheme:dark]"
+            />
+            <span className="text-gray-600 text-xs">→</span>
+            <input
+              type="date" aria-label="Vencimento até"
+              value={vencAte} onChange={e => setVencAte(e.target.value)}
+              className="bg-transparent text-xs text-gray-200 focus:outline-none [color-scheme:dark]"
+            />
+          </div>
+
           {periodoVencFiltro && (
             <span className="text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
               <Calendar size={12} /> Vencimento últimos {periodoVencFiltro} dias
@@ -191,9 +256,9 @@ function OrcamentosContent() {
             </span>
           )}
 
-          {(busca || vendedorFiltro || ordemFiltro || statusFiltro || periodoVencFiltro) && (
+          {(busca || vendedorFiltro || ordemFiltro || statusFiltro || periodoVencFiltro || emissaoDe || emissaoAte || vencDe || vencAte) && (
             <button
-              onClick={() => { setBusca(''); setVendedorFiltro(''); setOrdemFiltro(''); setStatusFiltro(''); setPeriodoVencFiltro(''); setSortConfig(null); }}
+              onClick={() => { setBusca(''); setVendedorFiltro(''); setOrdemFiltro(''); setStatusFiltro(''); setPeriodoVencFiltro(''); setEmissaoDe(''); setEmissaoAte(''); setVencDe(''); setVencAte(''); setSortConfig(null); }}
               className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
             >
               <X size={14} /> Limpar
