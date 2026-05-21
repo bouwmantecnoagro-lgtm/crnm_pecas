@@ -123,7 +123,12 @@ export default function Dashboard() {
   const totalAtivos = useMemo(() => clientesFiltrados.filter((c: any) => c.STATUS_BASE === 'ATIVO').length, [clientesFiltrados]);
 
   // Buckets pela nova coluna STATUS
-  const orcAbertos = useMemo(() => orcamentosFiltrados.filter((o: any) => { const s = getStatusOrc(o); return !s || s === 'ABERTO' || s === 'EM ABERTO'; }), [orcamentosFiltrados]);
+  // Exige Status explícito 'ABERTO'/'EM ABERTO'. NÃO aceita null/vazio: a investigação
+  // de 2026-05-21 mostrou 707 registros legacy com Status=null que o ERP não devolve
+  // mais (provavelmente já faturados/cancelados fora da janela do SELECT da sync),
+  // mas que ficaram no Supabase porque UPSERT não os apaga. Eles inflavam o card em
+  // ~R$ 2.7M sem refletir pipeline ativo.
+  const orcAbertos = useMemo(() => orcamentosFiltrados.filter((o: any) => { const s = getStatusOrc(o); return s === 'ABERTO' || s === 'EM ABERTO'; }), [orcamentosFiltrados]);
 
   // Quantidade de orçamentos únicos (cada ORC_NUMERO_ORCAMENTO tem N linhas de item).
   // Usado no subtitle do card pra evitar a confusão "N orçamentos pendentes" quando
