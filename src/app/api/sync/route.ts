@@ -104,8 +104,15 @@ function processOrcamento(o: any): any {
   r.ORC_VALOR_TOTAL = parseFinanceiro(r.ORC_VALOR_TOTAL);
   r.ORC_CUSTO_PRODUTO = parseFinanceiro(r.ORC_CUSTO_PRODUTO);
   
-  // Mapeamento da nova coluna de STATUS do orcamento (Trata variações de nome do cabeçalho)
-  const statusStr = String(o.STATUS || o.Status || o.status || o.STATUS_ORCAMENTO || o.Situacao || 'ABERTO').toUpperCase().trim();
+  // Mapeamento da coluna STATUS vinda do ERP (trata variações de nome do cabeçalho).
+  // ANTES: default 'ABERTO' quando o campo vinha undefined — causou bug onde 100% dos
+  // registros ficavam ABERTO porque a query SELECT antiga não pedia [STATUS]. Agora,
+  // se o ERP não mandar nada, grava null e o getStatusOrcamento() do front trata como
+  // ABERTO. Assim qualquer valor real do ERP (FATURADO/CANCELADO/VENCIDO) é respeitado.
+  const rawStatus = o.STATUS ?? o.Status ?? o.status ?? o.STATUS_ORCAMENTO ?? o.Situacao;
+  const statusStr = rawStatus != null && String(rawStatus).trim() !== ''
+    ? String(rawStatus).toUpperCase().trim()
+    : null;
 
   // IMPORTANTE: a coluna real no Postgres é "Status" (case-sensitive por causa
   // das aspas duplas). O Supabase rejeita upsert com chaves desconhecidas (500),
