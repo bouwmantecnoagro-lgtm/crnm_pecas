@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Check, X, Shield, User as UserIcon, Clock, Users as UsersIcon, Search, UserPlus } from 'lucide-react';
+import { Check, X, Shield, User as UserIcon, Clock, Users as UsersIcon, Search, UserPlus, Trash2 } from 'lucide-react';
 
 type Role = 'ADMIN' | 'USER' | 'PENDING';
 
@@ -245,6 +245,8 @@ export default function UsersTable({
   );
 }
 
+type BulkItem = { email: string; role: 'USER' | 'ADMIN'; status: 'pending' | 'ok' | 'error'; msg?: string };
+
 function AddUserModal({
   vendedores,
   onClose,
@@ -252,6 +254,7 @@ function AddUserModal({
   vendedores: Vendedor[];
   onClose: () => void;
 }) {
+  const [mode, setMode] = useState<'single' | 'bulk'>('single');
   const [email, setEmail] = useState('');
   const [nome, setNome] = useState('');
   const [role, setRole] = useState<'USER' | 'ADMIN'>('USER');
@@ -259,6 +262,62 @@ function AddUserModal({
   const [search, setSearch] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Modo lote
+  const [bulkInput, setBulkInput] = useState('');
+  const [bulkItems, setBulkItems] = useState<BulkItem[]>([]);
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+
+  function parseBulk() {
+    const candidatos = bulkInput.split(/[\s,;\n]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+    const validos: BulkItem[] = [];
+    const seen = new Set(bulkItems.map(b => b.email));
+    for (const c of candidatos) {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c)) continue;
+      if (seen.has(c)) continue;
+      seen.add(c);
+      validos.push({ email: c, role: 'USER', status: 'pending' });
+    }
+    setBulkItems(prev => [...prev, ...validos]);
+    setBulkInput('');
+  }
+
+  function setBulkRole(idx: number, newRole: 'USER' | 'ADMIN') {
+    setBulkItems(prev => prev.map((b, i) => i === idx ? { ...b, role: newRole } : b));
+  }
+  function removeBulk(idx: number) {
+    setBulkItems(prev => prev.filter((_, i) => i !== idx));
+  }
+  function setAllRoles(r: 'USER' | 'ADMIN') {
+    setBulkItems(prev => prev.map(b => b.status === 'pending' ? { ...b, role: r } : b));
+  }
+
+  async function saveBulk() {
+    setSaving(true);
+    setError(null);
+    const pendentes = bulkItems.map((b, i) => ({ b, i })).filter(x => x.b.status === 'pending');
+    setBulkProgress({ done: 0, total: pendentes.length });
+    let done = 0;
+    for (const { b, i } of pendentes) {
+      try {
+        const res = await fetch('/api/admin/users', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: b.email, role: b.role }),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+        setBulkItems(prev => prev.map((x, j) => j === i ? { ...x, status: 'ok' as const } : x));
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : 'Erro';
+        setBulkItems(prev => prev.map((x, j) => j === i ? { ...x, status: 'error' as const, msg } : x));
+      }
+      done++;
+      setBulkProgress({ done, total: pendentes.length });
+    }
+    setSaving(false);
+    // Não reload automático: deixa admin ver o resultado item-a-item
+  }
 
   const filtered = useMemo(() => {
     const s = search.trim().toLowerCase();
@@ -318,8 +377,37 @@ function AddUserModal({
           <p className="text-xs text-gray-400 mt-1">
             Um email de convite será enviado. O usuário precisa aceitar o convite (ou logar via Entra com o mesmo email) pra ativar a conta.
           </p>
+          <div className="mt-3 inline-flex rounded-md border border-white/10 bg-white/5 p-0.5">
+            <button
+              type="button"
+              onClick={() => setMode('single')}
+              className={`px-3 py-1 text-xs rounded ${mode === 'single' ? 'bg-sky-500/20 text-sky-200' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              Individual
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode('bulk')}
+              className={`px-3 py-1 text-xs rounded ${mode === 'bulk' ? 'bg-sky-500/20 text-sky-200' : 'text-gray-400 hover:text-gray-200'}`}
+            >
+              Em lote
+            </button>
+          </div>
         </div>
 
+        {mode === 'bulk' ? (
+          <BulkPanel
+            bulkInput={bulkInput}
+            setBulkInput={setBulkInput}
+            bulkItems={bulkItems}
+            setBulkRole={setBulkRole}
+            removeBulk={removeBulk}
+            setAllRoles={setAllRoles}
+            parseBulk={parseBulk}
+            bulkProgress={bulkProgress}
+          />
+        ) : (
+        <>
         <div className="px-5 py-4 space-y-3">
           <div>
             <label className="block text-xs uppercase tracking-wider text-gray-400 mb-1">Email *</label>
@@ -422,6 +510,8 @@ function AddUserModal({
             </div>
           </>
         )}
+        </>
+        )}
 
         {error && (
           <div className="mx-5 mt-3 rounded-md bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-300">
@@ -431,21 +521,161 @@ function AddUserModal({
 
         <div className="flex justify-end gap-2 border-t border-white/10 px-5 py-3">
           <button
-            onClick={onClose}
+            onClick={() => { if (bulkItems.some(b => b.status === 'ok')) window.location.reload(); else onClose(); }}
             disabled={saving}
             className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-gray-200 hover:bg-white/5 disabled:opacity-50"
           >
-            Cancelar
+            {mode === 'bulk' && bulkItems.some(b => b.status === 'ok') ? 'Fechar e atualizar' : 'Cancelar'}
           </button>
+          {mode === 'single' ? (
+            <button
+              onClick={save}
+              disabled={saving || !email}
+              className="rounded-md bg-sky-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-50"
+            >
+              {saving ? 'Enviando convite…' : 'Adicionar e enviar convite'}
+            </button>
+          ) : (
+            <button
+              onClick={saveBulk}
+              disabled={saving || !bulkItems.some(b => b.status === 'pending')}
+              className="rounded-md bg-sky-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-50"
+            >
+              {saving
+                ? `Enviando ${bulkProgress?.done || 0}/${bulkProgress?.total || 0}…`
+                : `Enviar ${bulkItems.filter(b => b.status === 'pending').length} convite${bulkItems.filter(b => b.status === 'pending').length === 1 ? '' : 's'}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BulkPanel({
+  bulkInput, setBulkInput, bulkItems, setBulkRole, removeBulk, setAllRoles, parseBulk, bulkProgress,
+}: {
+  bulkInput: string;
+  setBulkInput: (v: string) => void;
+  bulkItems: BulkItem[];
+  setBulkRole: (idx: number, role: 'USER' | 'ADMIN') => void;
+  removeBulk: (idx: number) => void;
+  setAllRoles: (r: 'USER' | 'ADMIN') => void;
+  parseBulk: () => void;
+  bulkProgress: { done: number; total: number } | null;
+}) {
+  const pendentes = bulkItems.filter(b => b.status === 'pending').length;
+  const ok = bulkItems.filter(b => b.status === 'ok').length;
+  const erro = bulkItems.filter(b => b.status === 'error').length;
+  return (
+    <div className="px-5 py-4 space-y-3">
+      <div>
+        <label className="block text-xs uppercase tracking-wider text-gray-400 mb-1">
+          Cole emails (separados por vírgula, ponto-e-vírgula, espaço ou quebra de linha)
+        </label>
+        <textarea
+          value={bulkInput}
+          onChange={(e) => setBulkInput(e.target.value)}
+          placeholder="fulano@bouwman.com.br, ciclano@bouwman.com.br&#10;outro@bouwman.com.br"
+          rows={3}
+          className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-sky-500/50 focus:outline-none font-mono"
+        />
+        <div className="flex justify-between mt-2">
+          <div className="text-xs text-gray-400">
+            {bulkItems.length > 0 && (
+              <>
+                {pendentes} pendente{pendentes === 1 ? '' : 's'}
+                {ok > 0 && <span className="text-green-400"> • {ok} enviado{ok === 1 ? '' : 's'}</span>}
+                {erro > 0 && <span className="text-red-400"> • {erro} com erro</span>}
+              </>
+            )}
+          </div>
           <button
-            onClick={save}
-            disabled={saving || !email}
-            className="rounded-md bg-sky-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-50"
+            type="button"
+            onClick={parseBulk}
+            disabled={!bulkInput.trim()}
+            className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs text-sky-200 hover:bg-sky-500/20 disabled:opacity-50"
           >
-            {saving ? 'Enviando convite…' : 'Adicionar e enviar convite'}
+            Carregar emails
           </button>
         </div>
       </div>
+
+      {bulkItems.length > 0 && (
+        <>
+          <div className="flex items-center justify-between border-t border-white/10 pt-3">
+            <div className="text-xs uppercase tracking-wider text-gray-400">Marque o nível de cada um</div>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                onClick={() => setAllRoles('USER')}
+                className="text-xs rounded border border-white/10 px-2 py-1 text-gray-300 hover:bg-white/5"
+              >
+                Todos: Usuário
+              </button>
+              <button
+                type="button"
+                onClick={() => setAllRoles('ADMIN')}
+                className="text-xs rounded border border-white/10 px-2 py-1 text-gray-300 hover:bg-white/5"
+              >
+                Todos: Admin
+              </button>
+            </div>
+          </div>
+
+          <div className="max-h-72 overflow-y-auto rounded border border-white/10 divide-y divide-white/5">
+            {bulkItems.map((b, idx) => (
+              <div key={b.email} className="flex items-center gap-3 px-3 py-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm text-white truncate">{b.email}</div>
+                  {b.status === 'error' && <div className="text-xs text-red-400 truncate">{b.msg}</div>}
+                  {b.status === 'ok' && <div className="text-xs text-green-400">Convite enviado</div>}
+                </div>
+                {b.status === 'pending' && (
+                  <div className="flex gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setBulkRole(idx, 'USER')}
+                      className={`text-xs rounded px-2 py-1 border ${
+                        b.role === 'USER' ? 'bg-sky-500/20 border-sky-500/40 text-sky-200' : 'border-white/10 text-gray-400 hover:bg-white/5'
+                      }`}
+                    >
+                      Usuário
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setBulkRole(idx, 'ADMIN')}
+                      className={`text-xs rounded px-2 py-1 border ${
+                        b.role === 'ADMIN' ? 'bg-violet-500/20 border-violet-500/40 text-violet-200' : 'border-white/10 text-gray-400 hover:bg-white/5'
+                      }`}
+                    >
+                      Admin
+                    </button>
+                  </div>
+                )}
+                {b.status === 'ok' && <Check size={14} className="text-green-400" />}
+                {b.status === 'error' && <X size={14} className="text-red-400" />}
+                {b.status === 'pending' && (
+                  <button
+                    type="button"
+                    onClick={() => removeBulk(idx)}
+                    className="text-gray-500 hover:text-red-400"
+                    title="Remover"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {bulkItems.length === 0 && (
+        <div className="text-xs text-gray-500 italic">
+          Cole os emails acima e clique &quot;Carregar emails&quot; pra começar. Emails inválidos ou repetidos são descartados.
+        </div>
+      )}
     </div>
   );
 }
