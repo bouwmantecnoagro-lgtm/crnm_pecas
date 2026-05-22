@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Check, X, Shield, User as UserIcon, Clock, Users as UsersIcon, Search } from 'lucide-react';
+import { Check, X, Shield, User as UserIcon, Clock, Users as UsersIcon, Search, UserPlus } from 'lucide-react';
 
 type Role = 'ADMIN' | 'USER' | 'PENDING';
 
@@ -43,6 +43,7 @@ export default function UsersTable({
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingVendedoresOf, setEditingVendedoresOf] = useState<UserRow | null>(null);
+  const [adding, setAdding] = useState(false);
 
   const vendedorNome = useMemo(() => {
     const m = new Map<string, string>();
@@ -77,6 +78,16 @@ export default function UsersTable({
           {error}
         </div>
       )}
+
+      <div className="flex justify-end">
+        <button
+          onClick={() => setAdding(true)}
+          className="inline-flex items-center gap-2 rounded-md bg-sky-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-400 transition"
+        >
+          <UserPlus size={16} />
+          Adicionar Usuário
+        </button>
+      </div>
 
       <div className="overflow-x-auto rounded-lg border border-white/10 bg-white/5">
         <table className="w-full text-sm">
@@ -223,6 +234,218 @@ export default function UsersTable({
           onClose={() => setEditingVendedoresOf(null)}
         />
       )}
+
+      {adding && (
+        <AddUserModal
+          vendedores={vendedores}
+          onClose={() => setAdding(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function AddUserModal({
+  vendedores,
+  onClose,
+}: {
+  vendedores: Vendedor[];
+  onClose: () => void;
+}) {
+  const [email, setEmail] = useState('');
+  const [nome, setNome] = useState('');
+  const [role, setRole] = useState<'USER' | 'ADMIN'>('USER');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [search, setSearch] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const filtered = useMemo(() => {
+    const s = search.trim().toLowerCase();
+    if (!s) return vendedores;
+    return vendedores.filter(
+      (v) =>
+        v.cod.toLowerCase().includes(s) ||
+        (v.nome ?? '').toLowerCase().includes(s),
+    );
+  }, [vendedores, search]);
+
+  function toggle(cod: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(cod)) next.delete(cod);
+      else next.add(cod);
+      return next;
+    });
+  }
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email,
+          nome: nome || undefined,
+          role,
+          cod_vendedor: role === 'USER' ? Array.from(selected) : [],
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Falha ao adicionar usuário');
+      }
+      window.location.reload();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Erro inesperado');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-lg border border-white/10 bg-slate-900 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-white/10 px-5 py-4">
+          <h2 className="text-lg font-semibold text-white">Adicionar Usuário</h2>
+          <p className="text-xs text-gray-400 mt-1">
+            Um email de convite será enviado. O usuário precisa aceitar o convite (ou logar via Entra com o mesmo email) pra ativar a conta.
+          </p>
+        </div>
+
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <label className="block text-xs uppercase tracking-wider text-gray-400 mb-1">Email *</label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="fulano@bouwman.com.br"
+              autoFocus
+              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-sky-500/50 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-wider text-gray-400 mb-1">Nome (opcional)</label>
+            <input
+              type="text"
+              value={nome}
+              onChange={(e) => setNome(e.target.value)}
+              placeholder="Fulano da Silva"
+              className="w-full rounded-md border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-sky-500/50 focus:outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-wider text-gray-400 mb-1">Nível</label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setRole('USER')}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm transition ${
+                  role === 'USER'
+                    ? 'bg-sky-500/15 border-sky-500/30 text-sky-200'
+                    : 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/10'
+                }`}
+              >
+                <UserIcon size={14} className="inline mr-1.5 -mt-0.5" />
+                Usuário
+              </button>
+              <button
+                type="button"
+                onClick={() => setRole('ADMIN')}
+                className={`flex-1 rounded-md border px-3 py-2 text-sm transition ${
+                  role === 'ADMIN'
+                    ? 'bg-violet-500/15 border-violet-500/30 text-violet-200'
+                    : 'border-white/10 bg-white/5 text-gray-300 hover:bg-white/10'
+                }`}
+              >
+                <Shield size={14} className="inline mr-1.5 -mt-0.5" />
+                Administrador
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {role === 'USER' && (
+          <>
+            <div className="px-5 py-3 border-t border-white/10">
+              <div className="text-xs uppercase tracking-wider text-gray-400 mb-2">
+                Vendedores que o usuário pode ver (opcional)
+              </div>
+              <div className="relative">
+                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Buscar por código ou nome..."
+                  className="w-full rounded-md border border-white/10 bg-white/5 pl-9 pr-3 py-2 text-sm text-white placeholder-gray-500 focus:border-sky-500/50 focus:outline-none"
+                />
+              </div>
+              <div className="text-xs text-gray-400 mt-2">
+                {selected.size} selecionado{selected.size === 1 ? '' : 's'} de {vendedores.length}
+                {selected.size === 0 && <span className="ml-2 text-amber-400">— em branco = usuário não vê dados de venda</span>}
+              </div>
+            </div>
+
+            <div className="max-h-64 overflow-y-auto border-t border-white/10">
+              {filtered.length === 0 && (
+                <div className="px-5 py-6 text-center text-sm text-gray-400">Nenhum vendedor encontrado.</div>
+              )}
+              {filtered.map((v) => {
+                const checked = selected.has(v.cod);
+                return (
+                  <label
+                    key={v.cod}
+                    className="flex items-center gap-3 border-b border-white/5 px-5 py-2 cursor-pointer hover:bg-white/5"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(v.cod)}
+                      className="h-4 w-4 rounded border-white/20 bg-white/5 text-sky-500 focus:ring-sky-500"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-white truncate">{v.nome ?? '—'}</div>
+                      <div className="text-xs text-gray-400">cód. {v.cod}</div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {error && (
+          <div className="mx-5 mt-3 rounded-md bg-red-500/10 border border-red-500/30 p-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2 border-t border-white/10 px-5 py-3">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="rounded-md border border-white/10 px-3 py-1.5 text-sm text-gray-200 hover:bg-white/5 disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={save}
+            disabled={saving || !email}
+            className="rounded-md bg-sky-500 px-3 py-1.5 text-sm font-medium text-white hover:bg-sky-400 disabled:opacity-50"
+          >
+            {saving ? 'Enviando convite…' : 'Adicionar e enviar convite'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
