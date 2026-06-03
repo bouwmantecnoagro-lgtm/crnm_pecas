@@ -9,16 +9,22 @@ import AcaoCard from '@/components/AcaoCard';
 import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
 
 import { useData } from '@/contexts/DataContext';
-import { getStatusOrcamento as getStatusOrc, STATUS_FECHADOS } from '@/lib/orcamento';
+// getStatusOrc = status "vivo": rebaixa ABERTO→VENCIDO quando a validade já passou
+// (o sync congela o rótulo; aqui recalculamos na leitura). Ver src/lib/orcamento.ts.
+import { getStatusVivo as getStatusOrc, STATUS_FECHADOS } from '@/lib/orcamento';
 import { buildIndiceVendasInternas } from '@/lib/vendas-internas';
 
-const PERIODOS = [
-  { dias: 30, label: '30 dias' },
-  { dias: 90, label: '90 dias' },
-  { dias: 180, label: '6 meses' },
-  { dias: 365, label: '12 meses' },
-  { dias: 0, label: 'Todo período' },
-];
+// Filtro global por intervalo de EMISSÃO do orçamento (data início/fim, 'YYYY-MM-DD').
+// Compara string direto com ORC_DATA_EMISSAO_ORCAMENTO (mesmo formato) — sem fuso.
+// Strings vazias = sem limite (todo período).
+function emissaoNoRange(dateStr: any, ini: string, fim: string): boolean {
+  if (!ini && !fim) return true;
+  if (!dateStr) return true; // sem data de emissão → não filtra (defensivo)
+  const d = String(dateStr).split('T')[0];
+  if (ini && d < ini) return false;
+  if (fim && d > fim) return false;
+  return true;
+}
 
 export default function Dashboard() {
   const { clientes, orcamentos, maquinas, loading, ultimaSync, acoes, refreshAcoes } = useData();
@@ -29,7 +35,8 @@ export default function Dashboard() {
   // === Filtros globais do dashboard ===
   const [fVendedor, setFVendedor] = useState('');
   const [fFilial, setFFilial] = useState('');
-  const [fPeriodoDias, setFPeriodoDias] = useState(90);
+  const [fEmissaoIni, setFEmissaoIni] = useState('');
+  const [fEmissaoFim, setFEmissaoFim] = useState('');
   // Default = true: vendas para empresas do grupo Bouwman ficam fora dos KPIs.
   // Toggle permite incluir caso o usuário queira analisar o pipeline interno.
   const [fExcluirInternos, setFExcluirInternos] = useState(true);
@@ -66,15 +73,6 @@ export default function Dashboard() {
     return vendedoresDisponiveis.find(v => v.codigo === fVendedor)?.nome || '';
   }, [fVendedor, vendedoresDisponiveis]);
 
-  // Limite de data com base no período selecionado
-  const dataLimite = useMemo(() => {
-    if (fPeriodoDias === 0) return null;
-    const d = new Date();
-    d.setDate(d.getDate() - fPeriodoDias);
-    d.setHours(0, 0, 0, 0);
-    return d;
-  }, [fPeriodoDias]);
-
   // Índice de clientes do grupo Bouwman (CODIGO_CLIENTE_LOJA_CLIENTE → true).
   // Construído uma vez sobre todo o universo de clientes, independente de filtros.
   const indiceVendasInternas = useMemo(() => buildIndiceVendasInternas(clientes), [clientes]);
@@ -91,13 +89,10 @@ export default function Dashboard() {
   const orcamentosFiltrados = useMemo(() => orcamentos.filter((o: any) => {
     if (fVendedor && String(o.ORC_CODIGO_VENDEDOR || '') !== fVendedor) return false;
     if (fFilial && String(o.FILIAL_ORC || '') !== fFilial) return false;
-    if (dataLimite && o.ORC_DATA_EMISSAO_ORCAMENTO) {
-      const d = new Date(o.ORC_DATA_EMISSAO_ORCAMENTO);
-      if (!isNaN(d.getTime()) && d < dataLimite) return false;
-    }
+    if (!emissaoNoRange(o.ORC_DATA_EMISSAO_ORCAMENTO, fEmissaoIni, fEmissaoFim)) return false;
     if (fExcluirInternos && indiceVendasInternas.has(`${o.CODIGO_CLIENTE}_${o.LOJA_CLIENTE}`)) return false;
     return true;
-  }), [orcamentos, fVendedor, fFilial, dataLimite, fExcluirInternos, indiceVendasInternas]);
+  }), [orcamentos, fVendedor, fFilial, fEmissaoIni, fEmissaoFim, fExcluirInternos, indiceVendasInternas]);
 
   const maquinasFiltradas = useMemo(() => maquinas.filter((m: any) => {
     if (nomeVendedorSelecionado) {
@@ -105,12 +100,8 @@ export default function Dashboard() {
       if (nm !== nomeVendedorSelecionado.toUpperCase()) return false;
     }
     if (fFilial && String(m.FILIAL || '') !== fFilial) return false;
-    if (dataLimite && m.EMISSAO) {
-      const dt = new Date(m.EMISSAO.toString().includes('Date') ? parseInt(m.EMISSAO.match(/\d+/)![0]) : m.EMISSAO);
-      if (!isNaN(dt.getTime()) && dt < dataLimite) return false;
-    }
     return true;
-  }), [maquinas, nomeVendedorSelecionado, fFilial, dataLimite]);
+  }), [maquinas, nomeVendedorSelecionado, fFilial]);
 
   // Para ações: filial vem do cliente vinculado (a tabela crm_acoes não tem filial)
   const clienteFilialIdx = useMemo(() => {
@@ -132,13 +123,22 @@ export default function Dashboard() {
   const clientesEmRisco = useMemo(() => clientesFiltrados.filter((c: any) => (c.DIAS_SEM_COMPRA || 0) > 90), [clientesFiltrados]);
   const totalAtivos = useMemo(() => clientesFiltrados.filter((c: any) => c.STATUS_BASE === 'ATIVO').length, [clientesFiltrados]);
 
-  // Buckets pela nova coluna STATUS
-  // Exige Status explícito 'ABERTO'/'EM ABERTO'. NÃO aceita null/vazio: a investigação
-  // de 2026-05-21 mostrou 707 registros legacy com Status=null que o ERP não devolve
-  // mais (provavelmente já faturados/cancelados fora da janela do SELECT da sync),
-  // mas que ficaram no Supabase porque UPSERT não os apaga. Eles inflavam o card em
-  // ~R$ 2.7M sem refletir pipeline ativo.
-  const orcAbertos = useMemo(() => orcamentosFiltrados.filter((o: any) => { const s = getStatusOrc(o); return s === 'ABERTO' || s === 'EM ABERTO'; }), [orcamentosFiltrados]);
+  // Buckets por STATUS "vivo" (getStatusOrc reclassifica ABERTO→VENCIDO quando a
+  // validade já passou). Exige Status explícito 'ABERTO'/'EM ABERTO': registros legacy
+  // com Status=null que o ERP não devolve mais (UPSERT não apaga) NÃO entram.
+  //
+  // "Em aberto" é limitado pela VALIDADE (status vivo), não pela recência da emissão —
+  // um orçamento aberto há 200 dias ainda é oportunidade viva (o BI lista abertos há 265d).
+  // Respeita o intervalo de Emissão explícito do filtro (default = todo período, então
+  // não esconde nada) + vendedor/filial/exclusão Bouwman.
+  const orcAbertosBase = useMemo(() => orcamentos.filter((o: any) => {
+    if (fVendedor && String(o.ORC_CODIGO_VENDEDOR || '') !== fVendedor) return false;
+    if (fFilial && String(o.FILIAL_ORC || '') !== fFilial) return false;
+    if (!emissaoNoRange(o.ORC_DATA_EMISSAO_ORCAMENTO, fEmissaoIni, fEmissaoFim)) return false;
+    if (fExcluirInternos && indiceVendasInternas.has(`${o.CODIGO_CLIENTE}_${o.LOJA_CLIENTE}`)) return false;
+    return true;
+  }), [orcamentos, fVendedor, fFilial, fEmissaoIni, fEmissaoFim, fExcluirInternos, indiceVendasInternas]);
+  const orcAbertos = useMemo(() => orcAbertosBase.filter((o: any) => { const s = getStatusOrc(o); return s === 'ABERTO' || s === 'EM ABERTO'; }), [orcAbertosBase]);
 
   // Quantidade de orçamentos únicos (cada ORC_NUMERO_ORCAMENTO tem N linhas de item).
   // Usado no subtitle do card pra evitar a confusão "N orçamentos pendentes" quando
@@ -250,8 +250,9 @@ export default function Dashboard() {
     return raw;
   }, [clientesFiltrados]);
 
-  // Cross-sell: usa o período global como janela em vez do antigo hardcoded 90 dias
-  const periodoCrossDias = fPeriodoDias > 0 ? fPeriodoDias : 90;
+  // Cross-sell: janela de recência própria (90d). É outro conceito de data (NF da máquina),
+  // independente do filtro de Emissão de orçamentos.
+  const periodoCrossDias = 90;
   const maquinasRecentesTotal = useMemo(() => maquinasFiltradas.map((m: any) => {
     let diasAge = 9999;
     if (m.EMISSAO) {
@@ -287,12 +288,13 @@ export default function Dashboard() {
 
   const semDados = clientes.length === 0 && orcamentos.length === 0 && maquinas.length === 0;
   // fExcluirInternos = true é o default — só conta como "filtro ativo" se for desligado.
-  const filtroAtivo = !!(fVendedor || fFilial || fPeriodoDias !== 90 || !fExcluirInternos);
+  const filtroAtivo = !!(fVendedor || fFilial || fEmissaoIni || fEmissaoFim || !fExcluirInternos);
 
   function limparFiltros() {
     setFVendedor('');
     setFFilial('');
-    setFPeriodoDias(90);
+    setFEmissaoIni('');
+    setFEmissaoFim('');
     setFExcluirInternos(true);
   }
 
@@ -325,8 +327,11 @@ export default function Dashboard() {
     );
   }
 
-  const periodoLabel = PERIODOS.find(p => p.dias === fPeriodoDias)?.label || `${fPeriodoDias}d`;
-  const subPeriodoTxt = fPeriodoDias === 0 ? 'todo período' : `últimos ${periodoLabel}`;
+  const fmtDataBR = (s: string) => s ? s.split('-').reverse().join('/') : '';
+  const subPeriodoTxt = (!fEmissaoIni && !fEmissaoFim) ? 'todo período'
+    : (fEmissaoIni && fEmissaoFim) ? `emissão de ${fmtDataBR(fEmissaoIni)} a ${fmtDataBR(fEmissaoFim)}`
+    : fEmissaoIni ? `emissão a partir de ${fmtDataBR(fEmissaoIni)}`
+    : `emissão até ${fmtDataBR(fEmissaoFim)}`;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -370,13 +375,46 @@ export default function Dashboard() {
           <option value="">Todas as lojas</option>
           {filiaisDisponiveis.map(f => <option key={f} value={f}>Loja {f}</option>)}
         </select>
-        <select
-          className="bg-black/30 border border-white/10 text-sm rounded px-3 py-1.5 text-gray-200 focus:outline-none focus:border-sky-500"
-          value={fPeriodoDias}
-          onChange={e => setFPeriodoDias(Number(e.target.value))}
-        >
-          {PERIODOS.map(p => <option key={p.dias} value={p.dias}>{p.label}</option>)}
-        </select>
+        <div className="flex items-center gap-1.5 bg-black/30 border border-white/10 rounded px-2 py-1">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Emissão</span>
+          <input
+            type="date"
+            value={fEmissaoIni}
+            max={fEmissaoFim || undefined}
+            onChange={e => setFEmissaoIni(e.target.value)}
+            className="bg-transparent text-sm text-gray-200 focus:outline-none [color-scheme:dark]"
+            aria-label="Emissão início"
+          />
+          <span className="text-gray-500 text-xs">→</span>
+          <input
+            type="date"
+            value={fEmissaoFim}
+            min={fEmissaoIni || undefined}
+            onChange={e => setFEmissaoFim(e.target.value)}
+            className="bg-transparent text-sm text-gray-200 focus:outline-none [color-scheme:dark]"
+            aria-label="Emissão fim"
+          />
+        </div>
+        <div className="flex items-center gap-1">
+          {[{ l: '90d', d: 90 }, { l: '12m', d: 365 }].map(p => (
+            <button
+              key={p.d}
+              onClick={() => {
+                const fim = new Date();
+                const ini = new Date();
+                ini.setDate(ini.getDate() - p.d);
+                const iso = (dt: Date) => `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+                setFEmissaoIni(iso(ini));
+                setFEmissaoFim(iso(fim));
+              }}
+              className="text-[11px] px-2 py-1 rounded border border-white/10 text-gray-300 hover:border-sky-500/40 hover:text-sky-300 transition-colors"
+            >{p.l}</button>
+          ))}
+          <button
+            onClick={() => { setFEmissaoIni(''); setFEmissaoFim(''); }}
+            className="text-[11px] px-2 py-1 rounded border border-white/10 text-gray-300 hover:border-sky-500/40 hover:text-sky-300 transition-colors"
+          >Tudo</button>
+        </div>
         <label
           className={`flex items-center gap-2 text-sm rounded px-3 py-1.5 border cursor-pointer transition-colors ${
             fExcluirInternos
@@ -437,11 +475,11 @@ export default function Dashboard() {
               <KpiCard
                 title="Oportunidades Cross-Sell"
                 value={maquinasRecentesTotal.length.toString()}
-                subtitle={`Equipamentos vendidos nos ${subPeriodoTxt}`}
+                subtitle="Equipamentos vendidos nos últimos 90 dias"
                 icon={<Tractor className="text-amber-400" />}
                 accentColor="amber"
                 href={`/maquinas?recentes=${periodoCrossDias}`}
-                tooltip={`Máquinas vendidas dentro do período selecionado (${subPeriodoTxt}). Cada equipamento novo é uma oportunidade aberta para venda de peças e consumíveis.`}
+                tooltip="Máquinas vendidas nos últimos 90 dias (janela própria do cross-sell, independente do filtro de Emissão). Cada equipamento novo é uma oportunidade aberta para venda de peças e consumíveis."
               />
               <KpiCard
                 title="Orçamentos Abertos"
@@ -450,7 +488,7 @@ export default function Dashboard() {
                 icon={<ReceiptText className="text-blue-400" />}
                 accentColor="sky"
                 href="/orcamentos"
-                tooltip="Soma do valor (R$) dos itens de orçamentos com STATUS = ABERTO no ERP. Pipeline ativo — ainda não foi faturado, cancelado ou venceu."
+                tooltip="Soma do valor (R$) dos itens em aberto com validade ainda vigente (regra do ERP/BI: validade ≥ hoje). Pipeline ativo: respeita o filtro de Emissão quando você define um intervalo; no default (todo período) mostra tudo, sem corte por recência. Itens cuja validade já passou migram para Vencidos."
               />
               <KpiCard
                 title="Ações Pendentes"
@@ -623,7 +661,7 @@ export default function Dashboard() {
             ))}
             {maquinasRecentesFiltradas.length === 0 && (
               <div className="text-sm text-gray-500 text-center py-8 bg-black/20 rounded-lg">
-                Nenhuma entrega recente nos {subPeriodoTxt} com os filtros selecionados.
+                Nenhuma entrega recente nos últimos 90 dias com os filtros selecionados.
               </div>
             )}
           </div>
