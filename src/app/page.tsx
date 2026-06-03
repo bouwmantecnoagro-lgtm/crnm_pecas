@@ -7,6 +7,7 @@ import Link from 'next/link';
 import Cliente360Modal from '@/components/Cliente360Modal';
 import AcaoCard from '@/components/AcaoCard';
 import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
+import PerformanceComparativa from '@/components/PerformanceComparativa';
 
 import { useData } from '@/contexts/DataContext';
 // getStatusOrc = status "vivo": rebaixa ABERTO→VENCIDO quando a validade já passou
@@ -328,7 +329,11 @@ export default function Dashboard() {
   }
 
   const fmtDataBR = (s: string) => s ? s.split('-').reverse().join('/') : '';
-  const subPeriodoTxt = (!fEmissaoIni && !fEmissaoFim) ? 'todo período'
+  // A API entrega só os últimos 365d (fetchOrcamentosRecentes). "Sem range" = esse teto,
+  // então o rótulo honesto é "últimos 12 meses", não "todo período". O histórico real
+  // por vendedor está no painel Performance Comparativa (agregado server-side).
+  const minEmissao = (() => { const d = new Date(); d.setDate(d.getDate() - 365); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; })();
+  const subPeriodoTxt = (!fEmissaoIni && !fEmissaoFim) ? 'últimos 12 meses'
     : (fEmissaoIni && fEmissaoFim) ? `emissão de ${fmtDataBR(fEmissaoIni)} a ${fmtDataBR(fEmissaoFim)}`
     : fEmissaoIni ? `emissão a partir de ${fmtDataBR(fEmissaoIni)}`
     : `emissão até ${fmtDataBR(fEmissaoFim)}`;
@@ -380,6 +385,7 @@ export default function Dashboard() {
           <input
             type="date"
             value={fEmissaoIni}
+            min={minEmissao}
             max={fEmissaoFim || undefined}
             onChange={e => setFEmissaoIni(e.target.value)}
             className="bg-transparent text-sm text-gray-200 focus:outline-none [color-scheme:dark]"
@@ -389,14 +395,14 @@ export default function Dashboard() {
           <input
             type="date"
             value={fEmissaoFim}
-            min={fEmissaoIni || undefined}
+            min={fEmissaoIni || minEmissao}
             onChange={e => setFEmissaoFim(e.target.value)}
             className="bg-transparent text-sm text-gray-200 focus:outline-none [color-scheme:dark]"
             aria-label="Emissão fim"
           />
         </div>
         <div className="flex items-center gap-1">
-          {[{ l: '90d', d: 90 }, { l: '12m', d: 365 }].map(p => (
+          {[{ l: '30d', d: 30 }, { l: '90d', d: 90 }].map(p => (
             <button
               key={p.d}
               onClick={() => {
@@ -758,6 +764,9 @@ export default function Dashboard() {
         </div>
 
       </div>
+
+      {/* PERFORMANCE COMPARATIVA DO VENDEDOR (30d x histórico x média do grupo) — admin */}
+      <PerformanceComparativa />
 
       {/* RANKING DE EFICÁCIA POR VENDEDOR */}
       <div className="glass-panel p-6 border border-emerald-500/20 bg-emerald-950/5">
