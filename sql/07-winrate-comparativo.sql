@@ -26,10 +26,10 @@ with base as (
   select
     o."ORC_CODIGO_VENDEDOR"::text         as cod,
     o."ORC_NOME_VENDEDOR"                 as nome,
-    o."ORC_DATA_EMISSAO_ORCAMENTO"::date  as emissao,
+    nullif(o."ORC_DATA_EMISSAO_ORCAMENTO"::text, '')::date  as emissao,
     case
       when upper(trim(coalesce(nullif(trim(o."STATUS_OVERRIDE"), ''), o."Status"))) in ('ABERTO','EM ABERTO')
-           and o."ORC_DATA_ORCAMENTO"::date < current_date then 'VENCIDO'
+           and nullif(o."ORC_DATA_ORCAMENTO"::text, '')::date < current_date then 'VENCIDO'
       else upper(trim(coalesce(nullif(trim(o."STATUS_OVERRIDE"), ''), o."Status")))
     end as status_vivo
   from public.crm_orcamentos o
