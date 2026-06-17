@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { Loader2, Flame, Clock, Snowflake, TrendingUp, Zap, ReceiptText, Filter, RotateCcw } from 'lucide-react';
+import { Loader2, Flame, Clock, Snowflake, TrendingUp, Zap, ReceiptText, Filter, RotateCcw, Search } from 'lucide-react';
 import Link from 'next/link';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
 import { useData } from '@/contexts/DataContext';
@@ -22,6 +22,8 @@ export default function PipelineOrcamentos() {
   // Filtros globais (mesmo padrão do Dashboard) — sem isso o Pipeline acumulava
   // anos de orçamentos abertos e distorcia o Win Rate e os valores das colunas.
   const [fPeriodoDias, setFPeriodoDias] = useState(90);
+  const [fVendedor, setFVendedor] = useState('');
+  const [fCliente, setFCliente] = useState('');
 
   const dataLimite = useMemo(() => {
     if (fPeriodoDias === 0) return null;
@@ -31,13 +33,22 @@ export default function PipelineOrcamentos() {
     return d;
   }, [fPeriodoDias]);
 
-  const orcamentosFiltrados = useMemo(() => orcamentos.filter((o: any) => {
-    if (dataLimite && o.ORC_DATA_EMISSAO_ORCAMENTO) {
-      const d = new Date(o.ORC_DATA_EMISSAO_ORCAMENTO);
-      if (!isNaN(d.getTime()) && d < dataLimite) return false;
-    }
-    return true;
-  }), [orcamentos, dataLimite]);
+  const orcamentosFiltrados = useMemo(() => {
+    const q = fCliente.trim().toLowerCase();
+    return orcamentos.filter((o: any) => {
+      if (dataLimite && o.ORC_DATA_EMISSAO_ORCAMENTO) {
+        const d = new Date(o.ORC_DATA_EMISSAO_ORCAMENTO);
+        if (!isNaN(d.getTime()) && d < dataLimite) return false;
+      }
+      if (fVendedor && String(o.ORC_CODIGO_VENDEDOR) !== fVendedor) return false;
+      if (q) {
+        const nome = String(o.CLIENTE_ORC || '').toLowerCase();
+        const cod = String(o.CODIGO_CLIENTE || '').toLowerCase();
+        if (!nome.includes(q) && !cod.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [orcamentos, dataLimite, fVendedor, fCliente]);
 
   // Vendedores para o modal
   const vendedoresUnicos = Array.from(
@@ -85,7 +96,7 @@ export default function PipelineOrcamentos() {
     ? ((orcFaturados.length / fechadosCount) * 100).toFixed(1)
     : '0.0';
   const totalFaturado = orcFaturados.reduce((acc, curr) => acc + (curr.ORC_VALOR_TOTAL || 0), 0);
-  const filtroAtivo = fPeriodoDias !== 90;
+  const filtroAtivo = fPeriodoDias !== 90 || !!fVendedor || fCliente.trim() !== '';
 
   orcAbertos.forEach(o => {
     if (!o.ORC_DATA_EMISSAO_ORCAMENTO) return;
@@ -134,7 +145,7 @@ export default function PipelineOrcamentos() {
       <div className={`glass-panel p-3 flex flex-wrap items-center gap-3 border shrink-0 ${filtroAtivo ? 'border-sky-500/30 bg-sky-500/[0.02]' : 'border-white/5'}`}>
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-gray-400 pr-2 border-r border-white/10">
           <Filter size={14} className={filtroAtivo ? 'text-sky-400' : 'text-gray-500'} />
-          Filtro de período (emissão)
+          Filtros
         </div>
         <select
           className="bg-black/30 border border-white/10 text-sm rounded px-3 py-1.5 text-gray-200 focus:outline-none focus:border-sky-500"
@@ -143,12 +154,33 @@ export default function PipelineOrcamentos() {
         >
           {PERIODOS.map(p => <option key={p.dias} value={p.dias}>{p.label}</option>)}
         </select>
+
+        <select
+          className="bg-black/30 border border-white/10 text-sm rounded px-3 py-1.5 text-gray-200 focus:outline-none focus:border-sky-500"
+          value={fVendedor}
+          onChange={e => setFVendedor(e.target.value)}
+        >
+          <option value="">Todos os vendedores</option>
+          {vendedoresUnicos.map((v: any) => <option key={v.codigo} value={v.codigo}>{v.nome}</option>)}
+        </select>
+
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+          <input
+            type="text"
+            value={fCliente}
+            onChange={e => setFCliente(e.target.value)}
+            placeholder="Buscar cliente..."
+            className="bg-black/30 border border-white/10 text-sm rounded pl-7 pr-3 py-1.5 text-gray-200 placeholder:text-gray-600 focus:outline-none focus:border-sky-500 w-44"
+          />
+        </div>
+
         <span className="text-xs text-gray-500">
           {orcAbertos.length} abertos • {fechadosCount} fechados no período
         </span>
         {filtroAtivo && (
-          <button onClick={() => setFPeriodoDias(90)} className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 px-2 py-1.5 transition-colors ml-auto">
-            <RotateCcw size={12} /> Voltar a 90 dias
+          <button onClick={() => { setFPeriodoDias(90); setFVendedor(''); setFCliente(''); }} className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 px-2 py-1.5 transition-colors ml-auto">
+            <RotateCcw size={12} /> Limpar filtros
           </button>
         )}
       </div>
