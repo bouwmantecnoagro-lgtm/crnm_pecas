@@ -56,6 +56,19 @@ export default function PipelineOrcamentos() {
   // Lógica de Categorização Automática
   const hoje = new Date();
 
+  // Orçamentos com ação JÁ AGENDADA para o futuro "descansam": guardamos a data da próxima ação.
+  // Enquanto essa data não chega, o card sai do estado "precisa de ação" (não fica como abandonado).
+  const hoje0 = new Date(); hoje0.setHours(0, 0, 0, 0);
+  const proxAcaoPorOrc = new Map<string, string>();
+  for (const a of acoesAtivas) {
+    if (!a.numero_orcamento || !a.data_vencimento) continue;
+    const d = new Date(a.data_vencimento + 'T00:00:00');
+    if (isNaN(d.getTime()) || d <= hoje0) continue; // só agendamentos futuros descansam
+    const k = String(a.numero_orcamento);
+    const cur = proxAcaoPorOrc.get(k);
+    if (!cur || a.data_vencimento < cur) proxAcaoPorOrc.set(k, a.data_vencimento);
+  }
+
   const colunas = {
     quentes: { titulo: 'Quentes (0-7 Dias)', cor: 'text-emerald-400', border: 'border-emerald-500/30', bg: 'bg-emerald-500/10', icone: <Flame size={16} />, items: [] as any[], total: 0 },
     negociacao: { titulo: 'Em Negociação (8-15 Dias)', cor: 'text-sky-400', border: 'border-sky-500/30', bg: 'bg-sky-500/10', icone: <TrendingUp size={16} />, items: [] as any[], total: 0 },
@@ -176,16 +189,29 @@ export default function PipelineOrcamentos() {
               </div>
               <div className="flex justify-between items-end">
                 <span className="text-2xl font-bold text-white">R$ {coluna.total.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}</span>
-                <span className="text-xs text-gray-400 font-medium bg-black/40 px-2 py-0.5 rounded-full">{coluna.items.length} itens</span>
+                <div className="flex flex-col items-end gap-0.5">
+                  <span className="text-xs text-gray-400 font-medium bg-black/40 px-2 py-0.5 rounded-full">{coluna.items.length} itens</span>
+                  {(() => {
+                    const ag = coluna.items.filter((o: any) => proxAcaoPorOrc.has(String(o.ORC_NUMERO_ORCAMENTO))).length;
+                    return ag > 0 ? <span className="text-[10px] text-emerald-400/80">{ag} agendado{ag > 1 ? 's' : ''}</span> : null;
+                  })()}
+                </div>
               </div>
             </div>
 
             {/* Cards da Coluna */}
             <div className="p-3 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
-              {coluna.items.sort((a,b) => b.ORC_VALOR_TOTAL - a.ORC_VALOR_TOTAL).map((o, i) => {
+              {coluna.items.sort((a, b) => {
+                  const da = proxAcaoPorOrc.has(String(a.ORC_NUMERO_ORCAMENTO)) ? 1 : 0;
+                  const db = proxAcaoPorOrc.has(String(b.ORC_NUMERO_ORCAMENTO)) ? 1 : 0;
+                  if (da !== db) return da - db; // agendados (descansando) vão pro fim da coluna
+                  return b.ORC_VALOR_TOTAL - a.ORC_VALOR_TOTAL;
+                }).map((o, i) => {
                 const numAcoes = acoesPorOrcamento(String(o.ORC_NUMERO_ORCAMENTO));
+                const proxAcao = proxAcaoPorOrc.get(String(o.ORC_NUMERO_ORCAMENTO));
+                const fmtVenc = proxAcao ? new Date(proxAcao + 'T00:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : null;
                 return (
-                <div key={i} className="glass-panel p-4 cursor-pointer hover:border-white/20 transition-all hover:-translate-y-1 group relative">
+                <div key={i} className={`glass-panel p-4 cursor-pointer hover:border-white/20 transition-all hover:-translate-y-1 group relative ${proxAcao ? 'opacity-60 hover:opacity-100' : ''}`}>
                   <div className="flex justify-between items-start mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-bold bg-white/10 text-gray-300 px-2 py-0.5 rounded uppercase">{o.ORC_NUMERO_ORCAMENTO}</span>
@@ -195,9 +221,15 @@ export default function PipelineOrcamentos() {
                         </span>
                       )}
                     </div>
-                    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${coluna.bg} ${coluna.cor}`}>
-                      {o.diasAberto}d
-                    </span>
+                    {proxAcao ? (
+                      <span className="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-sm bg-emerald-500/15 text-emerald-300 border border-emerald-500/30" title={`Próxima ação agendada para ${fmtVenc} — em tratativa`}>
+                        <Clock size={9} /> Agendado {fmtVenc}
+                      </span>
+                    ) : (
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-sm ${coluna.bg} ${coluna.cor}`}>
+                        {o.diasAberto}d
+                      </span>
+                    )}
                   </div>
                   <h4 className="font-semibold text-gray-100 text-sm leading-tight mb-1 group-hover:text-white line-clamp-2" title={o.CLIENTE_ORC}>
                     {o.CLIENTE_ORC || 'Cliente Não Identificado'}
