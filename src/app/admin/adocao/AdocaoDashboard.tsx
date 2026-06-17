@@ -10,6 +10,7 @@ interface Row {
   codVendedor: string;
   ultimoLogin: string | null;
   ultimaAtividade: string | null;
+  ultimoVisto: string | null;
   acessos: number;
   criar: number;
   concluir: number;
@@ -65,8 +66,8 @@ export default function AdocaoDashboard({ rows, feed }: { rows: Row[]; feed: any
   }, [rows, sortKey, dir]);
 
   const totalUsuarios = rows.length;
-  const ativos = rows.filter((r) => { const d = diasDesde(r.ultimoLogin); return d !== null && d <= 7; }).length;
-  const inativos = rows.filter((r) => { const d = diasDesde(r.ultimoLogin); return d === null || d > 14; }).length;
+  const ativos = rows.filter((r) => { const d = diasDesde(r.ultimoVisto); return d !== null && d <= 7; }).length;
+  const inativos = rows.filter((r) => { const d = diasDesde(r.ultimoVisto); return d === null || d > 14; }).length;
   const totalEventos = rows.reduce((s, r) => s + r.total, 0);
 
   const th = (key: keyof Row, label: string, alignRight = false) => (
@@ -100,7 +101,7 @@ export default function AdocaoDashboard({ rows, feed }: { rows: Row[]; feed: any
             <thead className="text-xs uppercase bg-white/[0.03] text-gray-400">
               <tr>
                 {th('nome', 'Vendedor')}
-                {th('ultimoLogin', 'Último acesso')}
+                {th('ultimoVisto', 'Visto por último')}
                 {th('acessos', 'Acessos', true)}
                 {th('criar', 'Criadas', true)}
                 {th('concluir', 'Concl.', true)}
@@ -111,7 +112,7 @@ export default function AdocaoDashboard({ rows, feed }: { rows: Row[]; feed: any
             </thead>
             <tbody className="divide-y divide-white/5">
               {ordenadas.map((r, i) => {
-                const st = statusAdocao(r.ultimoLogin);
+                const st = statusAdocao(r.ultimoVisto);
                 return (
                   <tr key={r.email || i} className="hover:bg-white/[0.02] transition-colors">
                     <td className="px-3 py-3">
@@ -122,7 +123,7 @@ export default function AdocaoDashboard({ rows, feed }: { rows: Row[]; feed: any
                       </div>
                       <div className="text-[11px] text-gray-500 mt-0.5">{r.email}{r.codVendedor ? ` · cod ${r.codVendedor}` : ''}</div>
                     </td>
-                    <td className="px-3 py-3 text-gray-300">{fmtData(r.ultimoLogin)}</td>
+                    <td className="px-3 py-3 text-gray-300">{fmtData(r.ultimoVisto)}</td>
                     <td className="px-3 py-3 text-right">{r.acessos}</td>
                     <td className="px-3 py-3 text-right">{r.criar}</td>
                     <td className="px-3 py-3 text-right">{r.concluir}</td>

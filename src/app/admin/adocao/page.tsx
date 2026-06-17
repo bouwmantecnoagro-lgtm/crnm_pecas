@@ -56,13 +56,19 @@ export default async function AdocaoPage() {
     .filter((p) => p.role === 'USER' || p.role === 'ADMIN')
     .map((p) => {
       const a = agg.get(p.id) || {};
+      const ultimoLogin = lastSignIn.get(p.id) ?? null;
+      const ultimaAtividade = a.ultima ?? null;
+      // "Visto por último" = mais recente entre login (auth) e atividade registrada.
+      // O login só muda em re-auth; a atividade reflete o uso real do dia a dia.
+      const ultimoVisto = [ultimoLogin, ultimaAtividade].filter(Boolean).sort().pop() ?? null;
       return {
         nome: p.nome || (p.email ? String(p.email).split('@')[0] : 'Sem nome'),
         email: p.email || '',
         role: p.role,
         codVendedor: Array.isArray(p.cod_vendedor) ? p.cod_vendedor.join(', ') : '',
-        ultimoLogin: lastSignIn.get(p.id) ?? null,
-        ultimaAtividade: a.ultima ?? null,
+        ultimoLogin,
+        ultimaAtividade,
+        ultimoVisto,
         acessos: a.acessos || 0,
         criar: a.criar || 0,
         concluir: a.concluir || 0,
