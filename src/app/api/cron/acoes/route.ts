@@ -26,15 +26,28 @@ export async function GET(request: Request) {
     const orcamentosProcessados = new Set();
     const orcamentosReativacao = new Set();
 
-    // 1. Buscar ações automáticas que já estão pendentes (evitar duplicadas de execuções anteriores)
-    const { data: acoesPendentes, error: errAcoes } = await supabase
-      .from('crm_acoes')
-      .select('codigo_cliente, loja_cliente, numero_orcamento, tipo')
-      .in('status', ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'])
-      .eq('origem', 'SISTEMA_AUTO');
-
-    if (errAcoes) {
-      throw new Error(`Erro ao buscar ações pendentes: ${errAcoes.message}`);
+    // 1. Buscar ações automáticas que já estão pendentes (evitar duplicadas de execuções anteriores).
+    // IMPORTANTE: paginar. O .select() do Supabase capa em 1000 linhas por padrão — quando a fila
+    // de ações automáticas passa de 1000, o dedup abaixo fica cego e recria as mesmas ações todo dia
+    // (foi o que gerou ~17 mil duplicatas de resgate de churn). A paginação garante ver TODAS.
+    const acoesPendentes: any[] = [];
+    {
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data, error: errAcoes } = await supabase
+          .from('crm_acoes')
+          .select('codigo_cliente, loja_cliente, numero_orcamento, tipo')
+          .in('status', ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'])
+          .eq('origem', 'SISTEMA_AUTO')
+          .range(from, from + PAGE - 1);
+        if (errAcoes) {
+          throw new Error(`Erro ao buscar ações pendentes: ${errAcoes.message}`);
+        }
+        acoesPendentes.push(...(data || []));
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+      }
     }
 
     // --- REGRA 1: EVASÃO DE CLIENTES (CHURN) ---
