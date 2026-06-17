@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { registrarAtividade } from '@/lib/atividade';
 
 export const dynamic = 'force-dynamic';
 
@@ -99,6 +100,21 @@ export async function PATCH(
       .single();
 
     if (error) throw error;
+
+    // Log de atividade (fiscal de adoção).
+    let eventoLog: 'REAGENDAR_ACAO' | 'CONCLUIR_ACAO' | null = null;
+    if (body.resultado === 'REAGENDAR') eventoLog = 'REAGENDAR_ACAO';
+    else if (body.status === 'CONCLUIDA' || body.status === 'CANCELADA' || body.resultado) eventoLog = 'CONCLUIR_ACAO';
+    if (eventoLog) {
+      registrarAtividade({
+        userId: user.id,
+        userEmail: user.email,
+        evento: eventoLog,
+        detalhe: updatedAcao?.titulo || null,
+        codigoCliente: updatedAcao?.codigo_cliente,
+        numeroOrcamento: updatedAcao?.numero_orcamento,
+      });
+    }
 
     // Se o resultado for SEM_MAQUINA, removemos da carteira do vendedor
     if (body.resultado === 'SEM_MAQUINA' && updatedAcao?.codigo_cliente) {

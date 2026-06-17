@@ -31,7 +31,8 @@ const DataContext = createContext<DataContextProps>({
 // v8: clientes passaram a vir com CNPJ_RAIZ (coluna gerada — agrupamento de filiais).
 // v9: /api/acoes passou a paginar (antes capava em 1000 — ações com vencimento distante sumiam).
 //     Bump invalida o cache truncado anterior e força carga completa.
-const CACHE_VERSION = 9;
+// v10: clientes passaram a vir com OBSERVACAO_VENDEDOR / DATA_OBSERVACAO / QUEM_OBSERVOU.
+const CACHE_VERSION = 10;
 const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hora
 
 function cacheKeys(userId: string) {
@@ -135,6 +136,14 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
             if (isMounted) setLoading(false);
             return;
           }
+
+          // Registra acesso (1x por sessão de browser) — fiscal de adoção.
+          try {
+            if (!sessionStorage.getItem('acesso_logado')) {
+              sessionStorage.setItem('acesso_logado', '1');
+              fetch('/api/atividade/acesso', { method: 'POST' }).catch(() => {});
+            }
+          } catch { /* ignora storage indisponível */ }
 
           pruneLegacyCache(user.id);
           const cached = readCache(user.id);

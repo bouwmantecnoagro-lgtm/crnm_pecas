@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
+import { registrarAtividade } from '@/lib/atividade';
 
 export const dynamic = 'force-dynamic';
 
@@ -132,6 +133,16 @@ export async function POST(request: Request) {
       .single();
 
     if (error) throw error;
+
+    registrarAtividade({
+      userId: user.id,
+      userEmail: user.email,
+      vendedorCod: vendedorResp,
+      evento: 'CRIAR_ACAO',
+      detalhe: data?.titulo || acao.titulo,
+      codigoCliente: acao.codigo_cliente,
+      numeroOrcamento: acao.numero_orcamento,
+    });
 
     return NextResponse.json(data, { status: 201 });
   } catch (err: any) {

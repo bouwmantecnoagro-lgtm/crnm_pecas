@@ -21,6 +21,7 @@ export default function ClientesPage() {
   const [diasFiltro, setDiasFiltro] = useState('');
   const [marcaConcFiltro, setMarcaConcFiltro] = useState('');
   const [grupoFiltro, setGrupoFiltro] = useState(''); // '' | '__ANY__' | '<cnpj_raiz>'
+  const [obsFiltro, setObsFiltro] = useState(false); // só clientes com observação
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc' | 'desc'} | null>(null);
 
   const [cliente360, setCliente360] = useState<{ codigo: string, loja: string } | null>(null);
@@ -30,7 +31,7 @@ export default function ClientesPage() {
   // Reset pagina current qnd os filtros mudarem
   useEffect(() => {
     setPaginaAtual(1);
-  }, [deferredBusca, statusFiltro, ufFiltro, diasFiltro, marcaConcFiltro, grupoFiltro]);
+  }, [deferredBusca, statusFiltro, ufFiltro, diasFiltro, marcaConcFiltro, grupoFiltro, obsFiltro]);
 
   const marcasConcorrentes = useMemo(
     () => Array.from(new Set(clientes.map(c => c.MARCA_CONCORRENTE).filter(Boolean))).sort(),
@@ -58,8 +59,10 @@ export default function ClientesPage() {
       // Evita erro se c.CODIGO_CLIENTE vier como numérico do banco
       const strNome = c.NOME_CLIENTE ? String(c.NOME_CLIENTE).toLowerCase() : '';
       const strCod = c.CODIGO_CLIENTE ? String(c.CODIGO_CLIENTE).toLowerCase() : '';
+      const strObs = c.OBSERVACAO_VENDEDOR ? String(c.OBSERVACAO_VENDEDOR).toLowerCase() : '';
 
-      const passaBusca = term ? (strNome.includes(term) || strCod.includes(term)) : true;
+      const passaBusca = term ? (strNome.includes(term) || strCod.includes(term) || strObs.includes(term)) : true;
+      const passaObs = obsFiltro ? !!c.OBSERVACAO_VENDEDOR : true;
       const passaStatus = statusFiltro ? c.STATUS_BASE === statusFiltro : true;
       const passaUf = ufFiltro ? c.UF === ufFiltro : true;
 
@@ -79,9 +82,9 @@ export default function ClientesPage() {
         passaGrupo = c.CNPJ_RAIZ === grupoFiltro;
       }
 
-      return passaBusca && passaStatus && passaUf && passaDias && passaMarca && passaGrupo;
+      return passaBusca && passaStatus && passaUf && passaDias && passaMarca && passaGrupo && passaObs;
     });
-  }, [clientes, deferredBusca, statusFiltro, ufFiltro, diasFiltro, marcaConcFiltro, grupoFiltro, gruposCount, isBuscandoCurto]);
+  }, [clientes, deferredBusca, statusFiltro, ufFiltro, diasFiltro, marcaConcFiltro, grupoFiltro, obsFiltro, gruposCount, isBuscandoCurto]);
 
   const filtradosOrdenados = useMemo(() => {
     let result = [...filtrados];
@@ -185,6 +188,14 @@ export default function ClientesPage() {
             <option value="__ANY__">Apenas clientes em grupo (2+ filiais)</option>
           </select>
 
+          <button
+            onClick={() => setObsFiltro(v => !v)}
+            className={`text-sm px-4 py-2 rounded-lg border transition-colors flex items-center gap-1.5 ${obsFiltro ? 'bg-amber-500/15 text-amber-300 border-amber-500/30' : 'bg-black/40 text-gray-300 border-white/10 hover:text-white'}`}
+            title="Mostrar apenas clientes com observação"
+          >
+            📝 Com observação
+          </button>
+
           {grupoFiltro && grupoFiltro !== '__ANY__' && (
             <span className="text-xs font-semibold bg-sky-500/15 text-sky-300 border border-sky-500/30 px-3 py-1.5 rounded-lg flex items-center gap-1.5">
               <Users size={12} /> Grupo {grupoFiltro}
@@ -192,9 +203,9 @@ export default function ClientesPage() {
             </span>
           )}
 
-          {(busca || statusFiltro || ufFiltro || diasFiltro || marcaConcFiltro || grupoFiltro || sortConfig) && (
+          {(busca || statusFiltro || ufFiltro || diasFiltro || marcaConcFiltro || grupoFiltro || obsFiltro || sortConfig) && (
             <button
-              onClick={() => { setBusca(''); setStatusFiltro(''); setUfFiltro(''); setDiasFiltro(''); setMarcaConcFiltro(''); setGrupoFiltro(''); setSortConfig(null); }}
+              onClick={() => { setBusca(''); setStatusFiltro(''); setUfFiltro(''); setDiasFiltro(''); setMarcaConcFiltro(''); setGrupoFiltro(''); setObsFiltro(false); setSortConfig(null); }}
               className="text-xs text-red-400 hover:text-red-300 flex items-center gap-1"
             >
               <X size={14} /> Limpar
@@ -252,6 +263,14 @@ export default function ClientesPage() {
                             title={c.MODELO_CONCORRENTE ? `Modelo: ${c.MODELO_CONCORRENTE}` : 'Marca concorrente'}
                           >
                             🚜 {c.MARCA_CONCORRENTE}
+                          </span>
+                        )}
+                        {c.OBSERVACAO_VENDEDOR && (
+                          <span
+                            className="text-[10px] font-bold uppercase tracking-wider bg-amber-500/15 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full"
+                            title={c.OBSERVACAO_VENDEDOR}
+                          >
+                            📝 Obs
                           </span>
                         )}
                       </div>

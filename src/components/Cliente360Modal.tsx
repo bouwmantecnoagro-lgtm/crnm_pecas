@@ -45,6 +45,11 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
   const [novoEmail, setNovoEmail] = useState('');
   const [salvandoContato, setSalvandoContato] = useState(false);
 
+  // Observação livre do vendedor
+  const [editandoObs, setEditandoObs] = useState(false);
+  const [novaObs, setNovaObs] = useState('');
+  const [salvandoObs, setSalvandoObs] = useState(false);
+
   const { acoes, refreshAcoes, clientes, orcamentos } = useData();
 
   // Vendedores para o modal de criar ação
@@ -168,7 +173,32 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
     setSalvandoContato(false);
   };
 
-
+  const handleSalvarObservacao = async () => {
+    if (!data?.cliente) return;
+    setSalvandoObs(true);
+    try {
+      const res = await fetch('/api/clientes/observacao', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          codigo_cliente: codigoCliente,
+          loja_cliente: lojaCliente,
+          nome_cliente: data.cliente.NOME_CLIENTE,
+          observacao: novaObs,
+        }),
+      });
+      if (!res.ok) throw new Error('Falha ao salvar observação.');
+      const updated = { ...data };
+      updated.cliente.OBSERVACAO_VENDEDOR = novaObs.trim() || null;
+      updated.cliente.DATA_OBSERVACAO = novaObs.trim() ? new Date().toISOString() : null;
+      setData(updated);
+      setEditandoObs(false);
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao salvar a observação.');
+    }
+    setSalvandoObs(false);
+  };
 
   const { cliente, maquinas, orcamentos: orcamentosCliente } = data;
 
@@ -338,6 +368,47 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
                     </div>
                   </div>
                 </div>
+              </div>
+
+              {/* Card Observação do vendedor */}
+              <div className="glass-panel p-5 relative">
+                <div className="flex justify-between items-center mb-3 border-b border-white/5 pb-2">
+                  <h3 className="text-sm font-bold uppercase tracking-wider text-gray-500">Observação</h3>
+                  {!editandoObs ? (
+                    <button
+                      onClick={() => { setNovaObs(cliente.OBSERVACAO_VENDEDOR || ''); setEditandoObs(true); }}
+                      className="text-gray-500 hover:text-amber-400 transition-colors"
+                      title="Editar observação"
+                    >
+                      <Edit2 size={14} />
+                    </button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button onClick={() => setEditandoObs(false)} className="text-xs text-gray-400 hover:text-white transition-colors" disabled={salvandoObs}>Cancelar</button>
+                      <button onClick={handleSalvarObservacao} className="flex items-center gap-1 text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 px-2 py-1 rounded transition-colors" disabled={salvandoObs}>
+                        {salvandoObs ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />} Salvar
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {editandoObs ? (
+                  <textarea
+                    value={novaObs}
+                    onChange={e => setNovaObs(e.target.value)}
+                    rows={4}
+                    placeholder="Ex: tem colhedora John Deere X9 — vendemos navalhas e correias compatíveis."
+                    className="w-full bg-black/40 border border-amber-500/30 rounded-lg py-2 px-3 text-sm text-white placeholder:text-gray-600 outline-none focus:border-amber-500 resize-none"
+                  />
+                ) : cliente.OBSERVACAO_VENDEDOR ? (
+                  <div>
+                    <p className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{cliente.OBSERVACAO_VENDEDOR}</p>
+                    {cliente.DATA_OBSERVACAO && (
+                      <p className="text-[10px] text-gray-600 mt-2">Atualizada em {new Date(cliente.DATA_OBSERVACAO).toLocaleDateString('pt-BR')}{cliente.QUEM_OBSERVOU ? ` · ${cliente.QUEM_OBSERVOU}` : ''}</p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-gray-600 italic">Sem observação. Clique no lápis para adicionar (ex.: produto concorrente p/ o qual temos peças).</p>
+                )}
               </div>
 
               {/* Card Métricas e Vendedor */}
