@@ -44,10 +44,11 @@ interface AcaoCardProps {
   onEdit?: () => void;
   onDragStart?: (e: React.DragEvent) => void;
   onClickCliente?: (codigo: string, loja: string) => void;
+  onClickOrcamento?: (numero: string) => void;
   compact?: boolean;
 }
 
-export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClickCliente, compact = false }: AcaoCardProps) {
+export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClickCliente, onClickOrcamento, compact = false }: AcaoCardProps) {
   const prio = PRIORIDADE_STYLES[acao.prioridade] || PRIORIDADE_STYLES.MEDIA;
   const statusInfo = STATUS_ICONS[acao.status] || STATUS_ICONS.PENDENTE;
   const tipoIcon = TIPO_ICONS[acao.tipo] || TIPO_ICONS.OUTRO;
@@ -82,7 +83,14 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
             onMouseDown={acao.codigo_cliente && onClickCliente ? (e) => e.stopPropagation() : undefined}
             title={acao.codigo_cliente && onClickCliente ? "Ver detalhes do cliente" : ""}
           >
-            {acao.nome_cliente || 'S/ cliente'}{acao.numero_orcamento ? ` · Orç #${acao.numero_orcamento}` : ''}
+            {acao.nome_cliente || 'S/ cliente'}
+            {acao.numero_orcamento && (
+              <span
+                onClick={onClickOrcamento ? (e) => { e.stopPropagation(); onClickOrcamento(String(acao.numero_orcamento)); } : undefined}
+                onMouseDown={onClickOrcamento ? (e) => e.stopPropagation() : undefined}
+                className={onClickOrcamento ? 'text-amber-300 hover:text-amber-200 cursor-pointer' : 'text-gray-500'}
+              > · Orç #{acao.numero_orcamento}</span>
+            )}
           </p>
         </div>
         <div className="text-right shrink-0">
@@ -150,9 +158,20 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
       {/* Orçamento que originou a ação */}
       {acao.numero_orcamento && (
         <div className="pl-2 mb-3">
-          <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-500/10 text-amber-300/90 border border-amber-500/20 px-2 py-0.5 rounded">
-            <FileText size={9} /> Orç #{acao.numero_orcamento}
-          </span>
+          {onClickOrcamento ? (
+            <button
+              onClick={(e) => { e.stopPropagation(); onClickOrcamento(String(acao.numero_orcamento)); }}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded hover:bg-amber-500/25 transition-colors cursor-pointer relative z-10"
+              title="Ver detalhes do orçamento"
+            >
+              <FileText size={9} /> Orç #{acao.numero_orcamento}
+            </button>
+          ) : (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-500/10 text-amber-300/90 border border-amber-500/20 px-2 py-0.5 rounded">
+              <FileText size={9} /> Orç #{acao.numero_orcamento}
+            </span>
+          )}
         </div>
       )}
 
