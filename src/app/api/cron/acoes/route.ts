@@ -98,9 +98,32 @@ export async function GET(request: Request) {
 
     // --- REGRA 2: PIPELINE COMERCIAL (FOLLOW-UP) ---
     // --- REGRA 3: REATIVAÇÃO de orçamentos cancelados/vencidos nos últimos 30 dias ---
-    const { data: orcamentos, error: errOrcamentos } = await supabase
-      .from('crm_orcamentos')
-      .select('*');
+    // Só orçamentos RECENTES interessam às regras 2 e 3 — filtra no servidor + pagina.
+    // (O .select sem range capa em 1000; a base tem ~160k, então antes só varria 1k.)
+    //  - REGRA 2 (follow-up): emitidos nos últimos 45 dias (a regra olha 15–45 dias por emissão);
+    //  - REGRA 3 (reativação): validade (ORC_DATA_ORCAMENTO) nos últimos 30 dias.
+    const hojeFiltro = new Date();
+    const lim45 = new Date(hojeFiltro); lim45.setDate(lim45.getDate() - 45);
+    const lim30 = new Date(hojeFiltro); lim30.setDate(lim30.getDate() - 30);
+    const fmtData = (d: Date) => d.toISOString().split('T')[0];
+    const COLS_ORC = 'ORC_NUMERO_ORCAMENTO, ORC_DATA_EMISSAO_ORCAMENTO, ORC_DATA_ORCAMENTO, ORC_VALOR_TOTAL, Status, STATUS_OVERRIDE, CODIGO_CLIENTE, LOJA_CLIENTE, CLIENTE_ORC, ORC_CODIGO_VENDEDOR, ORC_NOME_VENDEDOR';
+    const orcamentos: any[] = [];
+    let errOrcamentos: any = null;
+    {
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('crm_orcamentos')
+          .select(COLS_ORC)
+          .or(`ORC_DATA_EMISSAO_ORCAMENTO.gte.${fmtData(lim45)},ORC_DATA_ORCAMENTO.gte.${fmtData(lim30)}`)
+          .range(from, from + PAGE - 1);
+        if (error) { errOrcamentos = error; break; }
+        orcamentos.push(...(data || []));
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+      }
+    }
 
     if (errOrcamentos) {
       console.error("Erro ao buscar orçamentos:", errOrcamentos);
@@ -108,7 +131,11 @@ export async function GET(request: Request) {
       const hoje = new Date();
       for (const o of orcamentos) {
         // ----- REGRA 2: follow-up em orçamentos abertos esfriando -----
-        if (o.ORC_DATA_EMISSAO_ORCAMENTO) {
+        // Só ABERTO: não faz sentido "dar follow-up" em orçamento já FATURADO (ganho).
+        // CANCELADO/VENCIDO são tratados pela REGRA 3 (reativação) — evita ação dobrada.
+        const statusR2 = String(o.STATUS_OVERRIDE || o.Status || '').toUpperCase().trim();
+        const abertoR2 = statusR2 === 'ABERTO' || statusR2 === 'EM ABERTO' || statusR2 === '';
+        if (abertoR2 && o.ORC_DATA_EMISSAO_ORCAMENTO) {
           const dataEmissao = new Date(o.ORC_DATA_EMISSAO_ORCAMENTO);
           const diasAberto = Math.floor((hoje.getTime() - dataEmissao.getTime()) / (1000 * 60 * 60 * 24));
 
