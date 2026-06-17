@@ -82,7 +82,7 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
             onMouseDown={acao.codigo_cliente && onClickCliente ? (e) => e.stopPropagation() : undefined}
             title={acao.codigo_cliente && onClickCliente ? "Ver detalhes do cliente" : ""}
           >
-            {acao.nome_cliente || 'S/ cliente'}
+            {acao.nome_cliente || 'S/ cliente'}{acao.numero_orcamento ? ` · Orç #${acao.numero_orcamento}` : ''}
           </p>
         </div>
         <div className="text-right shrink-0">
@@ -145,7 +145,16 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
       </h4>
 
       {/* Título da ação */}
-      <p className="text-xs text-gray-400 pl-2 mb-3 line-clamp-2">{acao.titulo}</p>
+      <p className="text-xs text-gray-400 pl-2 mb-2 line-clamp-2">{acao.titulo}</p>
+
+      {/* Orçamento que originou a ação */}
+      {acao.numero_orcamento && (
+        <div className="pl-2 mb-3">
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-500/10 text-amber-300/90 border border-amber-500/20 px-2 py-0.5 rounded">
+            <FileText size={9} /> Orç #{acao.numero_orcamento}
+          </span>
+        </div>
+      )}
 
       {/* Descrição se tiver */}
       {acao.descricao && (

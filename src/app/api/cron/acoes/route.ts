@@ -51,15 +51,26 @@ export async function GET(request: Request) {
     }
 
     // --- REGRA 1: EVASÃO DE CLIENTES (CHURN) ---
-    const { data: clientes, error: errClientes } = await supabase
-      .from('crm_clientes')
-      .select('CODIGO_CLIENTE, LOJA_CLIENTE, NOME_CLIENTE, VENDEDOR_RESP, NOME_VENDEDOR_RESP, DIAS_SEM_COMPRA')
-      .eq('STATUS_BASE', 'ATIVO')
-      .not('DIAS_SEM_COMPRA', 'is', null);
-
-    if (errClientes) {
-      console.error("Erro ao buscar clientes:", errClientes);
-    } else {
+    // Pagina + filtra no servidor (só quem já está no gatilho de churn, > 120 dias).
+    // Antes capava em 1000 (de ~1668 ativos) e clientes lapsados ficavam sem ação de resgate.
+    const clientes: any[] = [];
+    {
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data, error: errClientes } = await supabase
+          .from('crm_clientes')
+          .select('CODIGO_CLIENTE, LOJA_CLIENTE, NOME_CLIENTE, VENDEDOR_RESP, NOME_VENDEDOR_RESP, DIAS_SEM_COMPRA')
+          .eq('STATUS_BASE', 'ATIVO')
+          .gt('DIAS_SEM_COMPRA', 120)
+          .range(from, from + PAGE - 1);
+        if (errClientes) { console.error("Erro ao buscar clientes:", errClientes); break; }
+        clientes.push(...(data || []));
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+      }
+    }
+    {
       for (const c of clientes) {
         if (c.DIAS_SEM_COMPRA > 120) {
           const cliId = `${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`;
