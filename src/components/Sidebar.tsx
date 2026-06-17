@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { LayoutDashboard, Users, Tractor, FileText, Settings, LogOut, Zap, ShieldCheck } from 'lucide-react';
+import { LayoutDashboard, Users, Tractor, FileText, Settings, LogOut, Zap, ShieldCheck, Activity } from 'lucide-react';
 import { useData } from '@/contexts/DataContext';
 import { createClient } from '@/lib/supabase/client';
 
@@ -74,6 +74,7 @@ export default function Sidebar() {
           <div className="pt-2 pb-1">
             <p className="px-3 text-[10px] font-bold uppercase tracking-wider text-gray-500 mb-1">Administração</p>
             <NavItem href="/admin/usuarios" icon={<ShieldCheck size={18} />} label="Usuários" active={pathname.startsWith('/admin/usuarios')} />
+            <NavItem href="/admin/adocao" icon={<Activity size={18} />} label="Fiscal de Adoção" active={pathname.startsWith('/admin/adocao')} />
           </div>
         )}
       </nav>
