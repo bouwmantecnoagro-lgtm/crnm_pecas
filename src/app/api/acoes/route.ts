@@ -39,27 +39,40 @@ export async function GET(request: Request) {
     const prioridade = searchParams.get('prioridade');
     const cliente = searchParams.get('codigo_cliente');
 
-    let query = supabase
-      .from('crm_acoes')
-      .select('*')
-      .order('data_vencimento', { ascending: true, nullsFirst: false })
-      .order('created_at', { ascending: false });
-
-    if (vendedor) query = query.eq('vendedor_responsavel', vendedor);
-    if (status) {
-      if (status === 'ATIVAS') {
-        query = query.in('status', ['PENDENTE', 'EM_ANDAMENTO']);
-      } else {
-        query = query.eq('status', status);
+    // Monta a query (com filtros) para uma página. Precisa ser refeita por página
+    // porque o query builder do supabase-js é de uso único.
+    const buildQuery = (fromIdx: number, toIdx: number) => {
+      let q = supabase
+        .from('crm_acoes')
+        .select('*')
+        .order('data_vencimento', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .range(fromIdx, toIdx);
+      if (vendedor) q = q.eq('vendedor_responsavel', vendedor);
+      if (status) {
+        if (status === 'ATIVAS') q = q.in('status', ['PENDENTE', 'EM_ANDAMENTO']);
+        else q = q.eq('status', status);
       }
+      if (prioridade) q = q.eq('prioridade', prioridade);
+      if (cliente) q = q.eq('codigo_cliente', cliente);
+      return q;
+    };
+
+    // Pagina: o .select() do supabase capa em 1000 linhas. Sem isto, ações com
+    // vencimento mais distante (ordenadas por último) somem do painel — foi o caso
+    // de ações recém-criadas com data futura não aparecerem.
+    const all: any[] = [];
+    let from = 0;
+    const PAGE = 1000;
+    while (true) {
+      const { data, error } = await buildQuery(from, from + PAGE - 1);
+      if (error) throw error;
+      all.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+      from += PAGE;
     }
-    if (prioridade) query = query.eq('prioridade', prioridade);
-    if (cliente) query = query.eq('codigo_cliente', cliente);
 
-    const { data, error } = await query;
-    if (error) throw error;
-
-    return NextResponse.json(data || []);
+    return NextResponse.json(all);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }

@@ -29,7 +29,9 @@ const DataContext = createContext<DataContextProps>({
 // v6: orçamentos passaram a vir com STATUS_OVERRIDE (cancelamento via CRM).
 // v7: clientes passaram a vir com MARCA_CONCORRENTE / MODELO_CONCORRENTE / DATA_MARCA_CONCORRENTE.
 // v8: clientes passaram a vir com CNPJ_RAIZ (coluna gerada — agrupamento de filiais).
-const CACHE_VERSION = 8;
+// v9: /api/acoes passou a paginar (antes capava em 1000 — ações com vencimento distante sumiam).
+//     Bump invalida o cache truncado anterior e força carga completa.
+const CACHE_VERSION = 9;
 const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hora
 
 function cacheKeys(userId: string) {
