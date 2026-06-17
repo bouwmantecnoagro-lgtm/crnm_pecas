@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Zap, Clock, CheckCircle2, XCircle, RotateCcw, Filter, Plus, BarChart3, AlertTriangle, TrendingUp, Users, Loader2 } from 'lucide-react';
+import { Zap, Clock, CheckCircle2, XCircle, RotateCcw, Filter, Plus, BarChart3, AlertTriangle, TrendingUp, Users, Loader2, Calendar, CalendarClock, CalendarOff } from 'lucide-react';
 import AcaoCard from '@/components/AcaoCard';
 import { getCategoriaAcao, CATEGORIAS_ACAO } from '@/lib/acao';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
@@ -19,7 +19,7 @@ export default function PainelAcoes() {
   const [criarModal, setCriarModal] = useState(false);
   const [concluirAcao, setConcluirAcao] = useState<any>(null);
   const [editarAcao, setEditarAcao] = useState<any>(null);
-  const [visao, setVisao] = useState<'kanban' | 'lista'>('kanban');
+  const [visao, setVisao] = useState<'kanban' | 'agenda' | 'lista'>('kanban');
   const [draggedAcaoId, setDraggedAcaoId] = useState<number | string | null>(null);
   const [cliente360, setCliente360] = useState<{codigo: string, loja: string} | null>(null);
 
@@ -75,6 +75,34 @@ export default function PainelAcoes() {
       kanbanColunas[status as keyof typeof kanbanColunas].items.push(a);
     }
   });
+
+  // AGENDA por data: ações ativas (já respeitando os filtros) agrupadas pela janela de vencimento.
+  const acoesAgenda = acoesParaKanban.filter((a: any) => ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'].includes(a.status));
+  const hojeMs = hoje.getTime();
+  const agendaGrupos: Record<string, any[]> = { atrasadas: [], hoje: [], amanha: [], semana: [], depois: [], semData: [] };
+  for (const a of acoesAgenda) {
+    if (!a.data_vencimento) { agendaGrupos.semData.push(a); continue; }
+    const d = new Date(a.data_vencimento + 'T00:00:00'); d.setHours(0, 0, 0, 0);
+    const diff = Math.round((d.getTime() - hojeMs) / 86400000);
+    if (diff < 0) agendaGrupos.atrasadas.push(a);
+    else if (diff === 0) agendaGrupos.hoje.push(a);
+    else if (diff === 1) agendaGrupos.amanha.push(a);
+    else if (diff <= 7) agendaGrupos.semana.push(a);
+    else agendaGrupos.depois.push(a);
+  }
+  Object.values(agendaGrupos).forEach(arr => arr.sort((a, b) => {
+    const da = a.data_vencimento ? new Date(a.data_vencimento + 'T00:00:00').getTime() : Infinity;
+    const db = b.data_vencimento ? new Date(b.data_vencimento + 'T00:00:00').getTime() : Infinity;
+    return da - db;
+  }));
+  const agendaSecoes = [
+    { key: 'atrasadas', titulo: 'Atrasadas', cor: 'text-red-400', icon: <AlertTriangle size={14} /> },
+    { key: 'hoje', titulo: 'Hoje', cor: 'text-emerald-400', icon: <Clock size={14} /> },
+    { key: 'amanha', titulo: 'Amanhã', cor: 'text-sky-400', icon: <CalendarClock size={14} /> },
+    { key: 'semana', titulo: 'Esta semana', cor: 'text-gray-300', icon: <Calendar size={14} /> },
+    { key: 'depois', titulo: 'Depois', cor: 'text-gray-400', icon: <Calendar size={14} /> },
+    { key: 'semData', titulo: 'Sem data', cor: 'text-gray-500', icon: <CalendarOff size={14} /> },
+  ];
 
   // Ranking de vendedores por ações
   const rankingVendedores = Array.from(
@@ -133,6 +161,7 @@ export default function PainelAcoes() {
         <div className="flex gap-3">
           <div className="flex bg-white/5 rounded-lg border border-white/10 overflow-hidden">
             <button onClick={() => setVisao('kanban')} className={`px-3 py-1.5 text-xs font-medium transition-colors ${visao === 'kanban' ? 'bg-violet-500/20 text-violet-400' : 'text-gray-500 hover:text-gray-300'}`}>Kanban</button>
+            <button onClick={() => setVisao('agenda')} className={`px-3 py-1.5 text-xs font-medium transition-colors flex items-center gap-1 ${visao === 'agenda' ? 'bg-violet-500/20 text-violet-400' : 'text-gray-500 hover:text-gray-300'}`}><Calendar size={13} /> Agenda</button>
             <button onClick={() => setVisao('lista')} className={`px-3 py-1.5 text-xs font-medium transition-colors ${visao === 'lista' ? 'bg-violet-500/20 text-violet-400' : 'text-gray-500 hover:text-gray-300'}`}>Lista</button>
           </div>
           <button
@@ -281,6 +310,42 @@ export default function PainelAcoes() {
               </div>
             </div>
           ))}
+        </div>
+      ) : visao === 'agenda' ? (
+        <div className="flex-1 overflow-y-auto space-y-6 custom-scrollbar pr-2">
+          {acoesAgenda.length === 0 ? (
+            <div className="flex items-center justify-center h-48 glass-panel">
+              <div className="text-center">
+                <Calendar size={40} className="text-gray-700 mx-auto mb-3" />
+                <p className="text-gray-500">Nenhuma ação ativa na agenda com esses filtros.</p>
+              </div>
+            </div>
+          ) : (
+            agendaSecoes.map(secao => {
+              const itens = agendaGrupos[secao.key];
+              if (!itens || itens.length === 0) return null;
+              return (
+                <div key={secao.key}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider ${secao.cor}`}>{secao.icon} {secao.titulo}</span>
+                    <span className="flex-1 h-px bg-white/10" />
+                    <span className="text-xs text-gray-500">{itens.length}</span>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {itens.map((acao: any) => (
+                      <AcaoCard
+                        key={acao.id}
+                        acao={acao}
+                        onConcluir={acao.status !== 'CONCLUIDA' && acao.status !== 'CANCELADA' ? () => setConcluirAcao(acao) : undefined}
+                        onEdit={() => setEditarAcao(acao)}
+                        onClickCliente={acao.codigo_cliente ? (cod, loja) => setCliente360({ codigo: cod, loja }) : undefined}
+                      />
+                    ))}
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto space-y-3 custom-scrollbar pr-2">

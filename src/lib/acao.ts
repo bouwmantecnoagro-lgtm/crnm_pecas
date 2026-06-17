@@ -24,13 +24,20 @@ export function getCategoriaAcao(acao: any): CategoriaAcao {
   const tipo = String(acao?.tipo || '').toUpperCase();
   const origem = String(acao?.origem || '').toUpperCase();
 
-  // Retenção / Sucesso do Cliente: reativação de orçamento e resgate de churn (gerados pelo robô).
-  if (tipo === 'REATIVACAO_ORCAMENTO') return CATS.RETENCAO;
-  if (origem === 'SISTEMA_AUTO' && tipo === 'LIGAR') return CATS.RETENCAO; // resgate de inatividade (cron REGRA 1)
+  // 1) Ações do robô (origem SISTEMA_AUTO) — pela regra que as gerou.
+  if (tipo === 'REATIVACAO_ORCAMENTO') return CATS.RETENCAO;            // cron REGRA 3
+  if (origem === 'SISTEMA_AUTO') {
+    if (tipo === 'LIGAR') return CATS.RETENCAO;                          // resgate de churn (REGRA 1)
+    if (tipo === 'FOLLOW_UP_ORCAMENTO') return CATS.COMERCIAL;           // follow-up de orçamento (REGRA 2)
+  }
 
-  // Comercial: ligado ao funil de orçamentos / cross-sell de peças.
+  // 2) Ações manuais — pela aba/origem em que o vendedor criou (origemTela do CriarAcaoModal).
+  if (origem === 'CARTEIRA') return CATS.RETENCAO;                       // CS Pipeline (Retenção)
+  if (origem === 'PIPELINE') return CATS.COMERCIAL;                      // Pipeline Comercial
+
+  // 3) Pelo propósito do tipo (ex.: criada no Cliente360 ou no Painel de Ações).
   if (tipo === 'FOLLOW_UP_ORCAMENTO' || tipo === 'OFERTA_PECAS') return CATS.COMERCIAL;
 
-  // Resto: ações ad-hoc criadas à mão pelo vendedor/gestor.
+  // 4) Resto: ações ad-hoc (ligar/whatsapp/visita/outro) criadas à mão.
   return CATS.MANUAL;
 }

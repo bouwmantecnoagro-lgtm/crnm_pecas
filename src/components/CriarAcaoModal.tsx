@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { X, Zap, Phone, MessageCircle, Mail, MapPin, FileText, Package, HelpCircle, Calendar, User, AlertTriangle } from 'lucide-react';
+import { getCategoriaAcao } from '@/lib/acao';
 
 const TIPOS_ACAO = [
   { value: 'LIGAR', label: 'Ligar', icon: <Phone size={14} />, color: 'text-emerald-400' },
@@ -54,6 +55,7 @@ export default function CriarAcaoModal({
     return d.toISOString().split('T')[0];
   });
   const [saving, setSaving] = useState(false);
+  const cat = getCategoriaAcao({ tipo, origem: origemTela });
 
   // Auto-gerar título quando tipo muda
   const gerarTitulo = (t: string) => {
@@ -130,7 +132,10 @@ export default function CriarAcaoModal({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">Nova Ação Comercial</h2>
-              <p className="text-xs text-gray-400">Origem: {origemTela}</p>
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="text-[10px] text-gray-500 uppercase tracking-wider">Categoria</span>
+                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase border ${cat.chip}`}>{cat.label}</span>
+              </div>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors">
