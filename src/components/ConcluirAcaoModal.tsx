@@ -30,6 +30,7 @@ export default function ConcluirAcaoModal({ acao, onClose, onSave }: ConcluirAca
     return d.toISOString().split('T')[0];
   });
   const [saving, setSaving] = useState(false);
+  const [sucesso, setSucesso] = useState('');
 
   const isOutraMarca = resultado === 'MAQUINA_OUTRA_MARCA';
   const marcaInvalida = isOutraMarca && !marcaConcorrente.trim();
@@ -75,7 +76,12 @@ export default function ConcluirAcaoModal({ acao, onClose, onSave }: ConcluirAca
 
       if (!res.ok) throw new Error('Erro ao atualizar');
       onSave();
-      onClose();
+      if (isReagendar) {
+        const d = new Date(novaData + 'T00:00:00');
+        setSucesso(`Reagendada para ${d.toLocaleDateString('pt-BR')}. Ela continua na coluna "Em Andamento" do Painel de Ações — agora com o selo 🔄 e ordenada pela nova data.`);
+      } else {
+        onClose();
+      }
     } catch (err) {
       console.error('Erro ao concluir ação:', err);
     } finally {
@@ -83,10 +89,29 @@ export default function ConcluirAcaoModal({ acao, onClose, onSave }: ConcluirAca
     }
   };
 
+  if (sucesso) {
+    return (
+      <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200" onClick={onClose}>
+        <div className="bg-[#0b101a] border border-white/10 w-full max-w-md rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="p-6 text-center">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-purple-500/20 border border-purple-500/30 flex items-center justify-center mb-4">
+              <CalendarClock size={26} className="text-purple-300" />
+            </div>
+            <h2 className="text-lg font-bold text-white mb-2">Reagendada!</h2>
+            <p className="text-sm text-gray-400 mb-6">{sucesso}</p>
+            <button onClick={onClose} className="w-full px-5 py-2.5 text-sm font-bold text-white bg-gradient-to-r from-emerald-600 to-sky-600 hover:from-emerald-500 hover:to-sky-500 rounded-lg transition-all">
+              Entendi
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200" onClick={onClose}>
       <div className="bg-[#0b101a] border border-white/10 w-full max-w-lg rounded-2xl shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
-        
+
         {/* Header */}
         <div className="p-5 border-b border-white/10 bg-gradient-to-r from-emerald-500/10 to-sky-500/10 flex items-center justify-between">
           <div className="flex items-center gap-3">

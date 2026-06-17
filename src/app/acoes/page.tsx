@@ -232,6 +232,11 @@ export default function PainelAcoes() {
               <div className="p-3 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
                 {coluna.items
                   .sort((a: any, b: any) => {
+                    // Ordena por data de vencimento (mais próxima/atrasada primeiro); sem data vai pro fim.
+                    // Empate na data: prioridade. Assim ações reagendadas afloram pela nova data.
+                    const da = a.data_vencimento ? new Date(a.data_vencimento + 'T00:00:00').getTime() : Infinity;
+                    const db = b.data_vencimento ? new Date(b.data_vencimento + 'T00:00:00').getTime() : Infinity;
+                    if (da !== db) return da - db;
                     const prioOrder: Record<string, number> = { URGENTE: 0, ALTA: 1, MEDIA: 2, BAIXA: 3 };
                     return (prioOrder[a.prioridade] ?? 2) - (prioOrder[b.prioridade] ?? 2);
                   })

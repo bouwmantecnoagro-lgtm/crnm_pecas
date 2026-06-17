@@ -154,14 +154,20 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
       {/* Resultado (se concluída) */}
       {acao.resultado && (
         <div className="pl-2 mb-3">
-          <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
-            acao.resultado === 'VENDA_REALIZADA' ? 'bg-sky-500/20 text-sky-400' :
-            acao.resultado === 'CLIENTE_INTERESSADO' ? 'bg-emerald-500/20 text-emerald-400' :
-            acao.resultado === 'SEM_INTERESSE' ? 'bg-red-500/20 text-red-400' :
-            'bg-gray-500/20 text-gray-400'
-          }`}>
-            {acao.resultado.replace(/_/g, ' ')}
-          </span>
+          {acao.resultado === 'REAGENDAR' ? (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30">
+              🔄 Reagendada p/ {formatarData(acao.data_vencimento)}
+            </span>
+          ) : (
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold ${
+              acao.resultado === 'VENDA_REALIZADA' ? 'bg-sky-500/20 text-sky-400' :
+              acao.resultado === 'CLIENTE_INTERESSADO' ? 'bg-emerald-500/20 text-emerald-400' :
+              acao.resultado === 'SEM_INTERESSE' ? 'bg-red-500/20 text-red-400' :
+              'bg-gray-500/20 text-gray-400'
+            }`}>
+              {acao.resultado.replace(/_/g, ' ')}
+            </span>
+          )}
           {acao.observacoes && (
             <p className="text-[10px] text-gray-500 mt-1 italic">"{acao.observacoes}"</p>
           )}
