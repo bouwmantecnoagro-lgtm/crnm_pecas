@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Zap, Clock, CheckCircle2, XCircle, RotateCcw, Filter, Plus, BarChart3, AlertTriangle, TrendingUp, Users, Loader2 } from 'lucide-react';
 import AcaoCard from '@/components/AcaoCard';
+import { getCategoriaAcao, CATEGORIAS_ACAO } from '@/lib/acao';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
 import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
 import EditarAcaoModal from '@/components/EditarAcaoModal';
@@ -14,6 +15,7 @@ export default function PainelAcoes() {
   const [filtroStatus, setFiltroStatus] = useState('ATIVAS');
   const [filtroVendedor, setFiltroVendedor] = useState('');
   const [filtroPrioridade, setFiltroPrioridade] = useState('');
+  const [filtroCategoria, setFiltroCategoria] = useState('');
   const [criarModal, setCriarModal] = useState(false);
   const [concluirAcao, setConcluirAcao] = useState<any>(null);
   const [editarAcao, setEditarAcao] = useState<any>(null);
@@ -37,6 +39,7 @@ export default function PainelAcoes() {
     if (filtroStatus && filtroStatus !== 'ATIVAS' && a.status !== filtroStatus) return false;
     if (filtroVendedor && a.vendedor_responsavel !== filtroVendedor) return false;
     if (filtroPrioridade && a.prioridade !== filtroPrioridade) return false;
+    if (filtroCategoria && getCategoriaAcao(a).key !== filtroCategoria) return false;
     return true;
   });
 
@@ -59,13 +62,12 @@ export default function PainelAcoes() {
     CANCELADA: { titulo: 'Canceladas', cor: 'text-red-400', border: 'border-red-500/30', bg: 'bg-red-500/10', icone: <XCircle size={16} />, items: [] as any[] },
   };
 
-  const acoesParaKanban = filtroVendedor || filtroPrioridade
-    ? acoes.filter((a: any) => {
-        if (filtroVendedor && a.vendedor_responsavel !== filtroVendedor) return false;
-        if (filtroPrioridade && a.prioridade !== filtroPrioridade) return false;
-        return true;
-      })
-    : acoes;
+  const acoesParaKanban = acoes.filter((a: any) => {
+    if (filtroVendedor && a.vendedor_responsavel !== filtroVendedor) return false;
+    if (filtroPrioridade && a.prioridade !== filtroPrioridade) return false;
+    if (filtroCategoria && getCategoriaAcao(a).key !== filtroCategoria) return false;
+    return true;
+  });
 
   acoesParaKanban.forEach((a: any) => {
     const status = a.status === 'REAGENDADA' ? 'PENDENTE' : a.status;
@@ -196,6 +198,23 @@ export default function PainelAcoes() {
           <option value="MEDIA">🟡 Média</option>
           <option value="BAIXA">⚪ Baixa</option>
         </select>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => setFiltroCategoria('')}
+            className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all ${filtroCategoria === '' ? 'bg-white/15 text-white border-white/25' : 'bg-white/[0.02] text-gray-500 border-white/10 hover:text-gray-300'}`}
+          >
+            Todas
+          </button>
+          {CATEGORIAS_ACAO.map(c => (
+            <button
+              key={c.key}
+              onClick={() => setFiltroCategoria(filtroCategoria === c.key ? '' : c.key)}
+              className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all ${filtroCategoria === c.key ? c.chip : 'bg-white/[0.02] text-gray-500 border-white/10 hover:text-gray-300'}`}
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
         {visao === 'lista' && (
           <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="bg-black/30 border border-white/10 text-xs rounded-lg px-3 py-1.5 text-gray-300 focus:outline-none focus:border-violet-500/50">
             <option value="ATIVAS">Ativas (Pendente + Em Andamento)</option>
@@ -206,8 +225,8 @@ export default function PainelAcoes() {
             <option value="">Todas</option>
           </select>
         )}
-        {(filtroVendedor || filtroPrioridade) && (
-          <button onClick={() => { setFiltroVendedor(''); setFiltroPrioridade(''); }} className="text-red-400 text-xs flex items-center gap-1 px-2 hover:text-red-300">
+        {(filtroVendedor || filtroPrioridade || filtroCategoria) && (
+          <button onClick={() => { setFiltroVendedor(''); setFiltroPrioridade(''); setFiltroCategoria(''); }} className="text-red-400 text-xs flex items-center gap-1 px-2 hover:text-red-300">
             <XCircle size={12} /> Limpar
           </button>
         )}

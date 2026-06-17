@@ -1,6 +1,7 @@
 'use client';
 
 import { Phone, MessageCircle, Mail, MapPin, FileText, Package, HelpCircle, CheckCircle2, Clock, AlertTriangle, XCircle, RotateCcw, Edit2 } from 'lucide-react';
+import { getCategoriaAcao } from '@/lib/acao';
 
 const TIPO_ICONS: Record<string, React.ReactNode> = {
   LIGAR: <Phone size={14} />,
@@ -51,6 +52,7 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
   const statusInfo = STATUS_ICONS[acao.status] || STATUS_ICONS.PENDENTE;
   const tipoIcon = TIPO_ICONS[acao.tipo] || TIPO_ICONS.OUTRO;
   const tipoColor = TIPO_COLORS[acao.tipo] || TIPO_COLORS.OUTRO;
+  const cat = getCategoriaAcao(acao);
 
   // Calcular se está vencida
   const hoje = new Date();
@@ -120,6 +122,9 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
           </span>
           <span className={`flex items-center gap-1 text-[10px] font-medium ${tipoColor}`}>
             {tipoIcon} {acao.tipo?.replace(/_/g, ' ')}
+          </span>
+          <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border ${cat.chip}`}>
+            {cat.label}
           </span>
         </div>
         <span className={`text-[11px] font-bold px-2 py-0.5 rounded-sm ${
