@@ -8,6 +8,7 @@ import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
 import IndicarTreinamentoModal from '@/components/IndicarTreinamentoModal';
 import { useData } from '@/contexts/DataContext';
 import { diasEf, recenciaDeOutraFilial } from '@/lib/recencia';
+import { Cliente360Skeleton } from '@/components/Skeletons';
 
 function fixEncoding(str: any) {
   if (typeof str !== 'string' || !str) return str;
@@ -127,11 +128,7 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
   }, [editandoContato, data]);
 
   if (loading) {
-    return (
-      <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-        <Loader2 size={48} className="text-sky-400 animate-spin" />
-      </div>
-    );
+    return <Cliente360Skeleton />;
   }
 
   if (errorMsg || !data?.cliente) {

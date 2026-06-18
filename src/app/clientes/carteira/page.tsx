@@ -1,12 +1,13 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2, ShieldCheck, AlertTriangle, Flame, Skull, MapPin, Zap } from 'lucide-react';
+import { ShieldCheck, AlertTriangle, Flame, Skull, MapPin, Zap } from 'lucide-react';
 import Link from 'next/link';
 import Cliente360Modal from '@/components/Cliente360Modal';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
 import { useData } from '@/contexts/DataContext';
 import { diasEf, recenciaDeOutraFilial } from '@/lib/recencia';
+import { KanbanSkeleton } from '@/components/Skeletons';
 
 export default function PipelineCarteira() {
   const { clientes, loading, orcamentos, refreshAcoes, acoes } = useData();
@@ -61,11 +62,7 @@ export default function PipelineCarteira() {
   });
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 size={48} className="text-sky-400 animate-spin" />
-      </div>
-    );
+    return <KanbanSkeleton />;
   }
 
   return (

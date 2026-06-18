@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState, useMemo, useDeferredValue } from 'react';
-import { Loader2, MapPin, Search, Tag, X, ChevronLeft, ChevronRight, Users } from 'lucide-react';
+import { MapPin, Search, Tag, X, ChevronLeft, ChevronRight, Users } from 'lucide-react';
 import Cliente360Modal from '@/components/Cliente360Modal';
 
 import { useData } from '@/contexts/DataContext';
 import { diasEf, recenciaDeOutraFilial } from '@/lib/recencia';
+import { TabelaClientesSkeleton } from '@/components/Skeletons';
 
 export default function ClientesPage() {
   const { clientes, loading } = useData();
@@ -218,9 +219,7 @@ export default function ClientesPage() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center h-64">
-          <Loader2 size={32} className="text-sky-400 animate-spin" />
-        </div>
+        <TabelaClientesSkeleton />
       ) : (
         <div className="glass-panel overflow-hidden">
           <div className="overflow-x-auto">

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
-import { AlertCircle, ChevronRight, MapPin, ReceiptText, Tractor, TrendingUp, Users, X, Loader2, Database, Zap, Filter, Award, AlertTriangle, RotateCcw, Hourglass, Info } from 'lucide-react';
+import { AlertCircle, ChevronRight, MapPin, ReceiptText, Tractor, TrendingUp, Users, X, Database, Zap, Filter, Award, AlertTriangle, RotateCcw, Hourglass, Info } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, Cell, LabelList } from 'recharts';
 import Link from 'next/link';
 import Cliente360Modal from '@/components/Cliente360Modal';
@@ -15,6 +15,7 @@ import { useData } from '@/contexts/DataContext';
 import { getStatusVivo as getStatusOrc, STATUS_FECHADOS } from '@/lib/orcamento';
 import { buildIndiceVendasInternas } from '@/lib/vendas-internas';
 import { diasEf } from '@/lib/recencia';
+import { DashboardSkeleton } from '@/components/Skeletons';
 
 // Filtro global por intervalo de EMISSÃO do orçamento (data início/fim, 'YYYY-MM-DD').
 // Compara string direto com ORC_DATA_EMISSAO_ORCAMENTO (mesmo formato) — sem fuso.
@@ -303,14 +304,7 @@ export default function Dashboard() {
   }
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-[60vh]">
-        <div className="text-center">
-          <Loader2 size={48} className="text-sky-400 animate-spin mx-auto mb-4" />
-          <p className="text-gray-400 text-lg">Carregando dados do CRM...</p>
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   if (semDados) {
