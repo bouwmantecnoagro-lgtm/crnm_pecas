@@ -38,7 +38,11 @@ with (security_invoker = false) as
 select
   c."CNPJ_RAIZ"                                                        as cnpj_raiz,
   min(c."DIAS_SEM_COMPRA")                                             as dias_grupo,
-  max(nullif(c."DATA_ULT_COMPRA"::text, '')::date)                     as data_grupo,
+  -- DATA_ULT_COMPRA às vezes vem no formato .NET do Protheus ("/Date(...)/"),
+  -- que quebra o cast ::date e derruba o select inteiro da view. Só converte
+  -- valores que realmente parecem data ISO (AAAA-MM-DD); o resto vira nulo.
+  max(case when c."DATA_ULT_COMPRA"::text ~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}'
+           then (c."DATA_ULT_COMPRA"::text)::date end)                 as data_grupo,
   count(*)                                                             as qtd_cadastros,
   (array_agg(c."FILIAL" order by c."DIAS_SEM_COMPRA" asc nulls last))[1] as filial_recente
 from public.crm_clientes c

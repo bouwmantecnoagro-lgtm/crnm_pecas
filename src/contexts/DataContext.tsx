@@ -34,7 +34,10 @@ const DataContext = createContext<DataContextProps>({
 // v10: clientes passaram a vir com OBSERVACAO_VENDEDOR / DATA_OBSERVACAO / QUEM_OBSERVOU.
 // v11: clientes passaram a vir com DIAS_SEM_COMPRA_EFETIVO (recência consolidada por
 //      CNPJ_RAIZ — duplicidade entre filiais) + FILIAL_GRUPO_RECENTE / DATA_ULT_COMPRA_GRUPO.
-const CACHE_VERSION = 11;
+// v12: a view crm_recencia_grupo quebrava no select completo (DATA_ULT_COMPRA em formato
+//      .NET "/Date(...)/" estourava o cast ::date) → API caía no fallback e a consolidação
+//      nunca aplicava. View corrigida; bump invalida o cache que guardou o dia cru.
+const CACHE_VERSION = 12;
 const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hora
 
 function cacheKeys(userId: string) {
