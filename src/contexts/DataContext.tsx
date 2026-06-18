@@ -32,7 +32,9 @@ const DataContext = createContext<DataContextProps>({
 // v9: /api/acoes passou a paginar (antes capava em 1000 — ações com vencimento distante sumiam).
 //     Bump invalida o cache truncado anterior e força carga completa.
 // v10: clientes passaram a vir com OBSERVACAO_VENDEDOR / DATA_OBSERVACAO / QUEM_OBSERVOU.
-const CACHE_VERSION = 10;
+// v11: clientes passaram a vir com DIAS_SEM_COMPRA_EFETIVO (recência consolidada por
+//      CNPJ_RAIZ — duplicidade entre filiais) + FILIAL_GRUPO_RECENTE / DATA_ULT_COMPRA_GRUPO.
+const CACHE_VERSION = 11;
 const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hora
 
 function cacheKeys(userId: string) {

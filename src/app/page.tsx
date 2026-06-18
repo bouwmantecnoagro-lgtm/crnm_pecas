@@ -14,6 +14,7 @@ import { useData } from '@/contexts/DataContext';
 // (o sync congela o rótulo; aqui recalculamos na leitura). Ver src/lib/orcamento.ts.
 import { getStatusVivo as getStatusOrc, STATUS_FECHADOS } from '@/lib/orcamento';
 import { buildIndiceVendasInternas } from '@/lib/vendas-internas';
+import { diasEf } from '@/lib/recencia';
 
 // Filtro global por intervalo de EMISSÃO do orçamento (data início/fim, 'YYYY-MM-DD').
 // Compara string direto com ORC_DATA_EMISSAO_ORCAMENTO (mesmo formato) — sem fuso.
@@ -121,7 +122,8 @@ export default function Dashboard() {
   }), [acoes, fVendedor, fFilial, clienteFilialIdx]);
 
   // === Cálculos derivados (sobre os filtrados) ===
-  const clientesEmRisco = useMemo(() => clientesFiltrados.filter((c: any) => (c.DIAS_SEM_COMPRA || 0) > 90), [clientesFiltrados]);
+  // Risco de evasão pela compra mais recente do grupo (CNPJ_RAIZ), não por cadastro isolado.
+  const clientesEmRisco = useMemo(() => clientesFiltrados.filter((c: any) => (diasEf(c) ?? 0) > 90), [clientesFiltrados]);
   const totalAtivos = useMemo(() => clientesFiltrados.filter((c: any) => c.STATUS_BASE === 'ATIVO').length, [clientesFiltrados]);
 
   // Buckets por STATUS "vivo" (getStatusOrc reclassifica ABERTO→VENCIDO quando a
@@ -244,8 +246,9 @@ export default function Dashboard() {
       { name: '> 2 anos', min: 731, max: 99999, quantidade: 0 },
     ];
     clientesFiltrados.forEach((c: any) => {
-      if (c.DIAS_SEM_COMPRA == null) return;
-      const bucket = raw.find(b => c.DIAS_SEM_COMPRA >= b.min && c.DIAS_SEM_COMPRA <= b.max) || raw[4];
+      const dias = diasEf(c);
+      if (dias == null) return;
+      const bucket = raw.find(b => dias >= b.min && dias <= b.max) || raw[4];
       bucket.quantidade += 1;
     });
     return raw;
@@ -726,13 +729,13 @@ export default function Dashboard() {
           </div>
 
           <div className="space-y-2 max-h-[350px] overflow-y-auto custom-scrollbar pr-2">
-            {clientesFiltrados.filter(c => (c.DIAS_SEM_COMPRA || 0) > 0 && c.STATUS_BASE !== 'BLOQUEADO' && (c.DIAS_SEM_COMPRA || 0) < 365).sort((a,b) => (b.DIAS_SEM_COMPRA || 0) - (a.DIAS_SEM_COMPRA || 0)).slice(0, 12).map((c) => {
+            {clientesFiltrados.filter(c => (diasEf(c) ?? 0) > 0 && c.STATUS_BASE !== 'BLOQUEADO' && (diasEf(c) ?? 0) < 365).sort((a,b) => (diasEf(b) ?? 0) - (diasEf(a) ?? 0)).slice(0, 12).map((c) => {
               const maqs = maquinasPorCliente.get(`${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`) || [];
               const ultimasMaquinas = maqs.sort((a: any, b: any) => new Date(b.EMISSAO || 0).getTime() - new Date(a.EMISSAO || 0).getTime()).slice(0, 1);
               return (
                 <div key={c.id} onClick={() => setClienteModal({codigo: c.CODIGO_CLIENTE, loja: c.LOJA_CLIENTE})} className="group glass-panel !bg-white/[0.02] hover:!bg-white/[0.05] p-3.5 transition-all flex justify-between items-center cursor-pointer border border-transparent hover:border-white/10">
                   <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${(c.DIAS_SEM_COMPRA || 0) > 90 ? 'bg-red-500/10 text-red-400 border border-red-500/20' : (c.DIAS_SEM_COMPRA || 0) > 30 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${(diasEf(c) ?? 0) > 90 ? 'bg-red-500/10 text-red-400 border border-red-500/20' : (diasEf(c) ?? 0) > 30 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
                       {(c.NOME_CLIENTE || '??').substring(0,2).toUpperCase()}
                     </div>
                     <div>
@@ -750,14 +753,14 @@ export default function Dashboard() {
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className={`text-sm font-semibold ${(c.DIAS_SEM_COMPRA || 0) > 90 ? 'text-red-400' : (c.DIAS_SEM_COMPRA || 0) > 30 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                      {c.DIAS_SEM_COMPRA || 0} dias
+                    <div className={`text-sm font-semibold ${(diasEf(c) ?? 0) > 90 ? 'text-red-400' : (diasEf(c) ?? 0) > 30 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                      {diasEf(c) ?? 0} dias
                     </div>
                     <div className="text-[10px] text-gray-500">sem comprar</div>
                   </div>
                 </div>
               )})}
-            {clientesFiltrados.filter(c => (c.DIAS_SEM_COMPRA || 0) > 0 && c.STATUS_BASE !== 'BLOQUEADO' && (c.DIAS_SEM_COMPRA || 0) < 365).length === 0 && (
+            {clientesFiltrados.filter(c => (diasEf(c) ?? 0) > 0 && c.STATUS_BASE !== 'BLOQUEADO' && (diasEf(c) ?? 0) < 365).length === 0 && (
               <div className="text-sm text-gray-500 text-center py-6">Nenhum cliente em risco iminente encontrado.</div>
             )}
           </div>

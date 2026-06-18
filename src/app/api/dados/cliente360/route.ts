@@ -38,6 +38,27 @@ export async function GET(request: Request) {
 
     const cliente = clienteData[0];
 
+    // Recência consolidada por grupo (CNPJ_RAIZ) — a view ignora RLS pra enxergar
+    // todas as filiais. Se outra filial comprou mais recente, o cliente NÃO é evasão.
+    if (cliente.CNPJ_RAIZ) {
+      const { data: grupo } = await supabase
+        .from('crm_recencia_grupo')
+        .select('dias_grupo, data_grupo, qtd_cadastros, filial_recente')
+        .eq('cnpj_raiz', cliente.CNPJ_RAIZ)
+        .maybeSingle();
+      const own = cliente.DIAS_SEM_COMPRA;
+      if (grupo && grupo.dias_grupo != null && (own == null || grupo.dias_grupo < own)) {
+        cliente.DIAS_SEM_COMPRA_EFETIVO = grupo.dias_grupo;
+        cliente.DATA_ULT_COMPRA_GRUPO = grupo.data_grupo;
+        cliente.QTD_CADASTROS_GRUPO = grupo.qtd_cadastros;
+        cliente.FILIAL_GRUPO_RECENTE = grupo.filial_recente;
+      } else {
+        cliente.DIAS_SEM_COMPRA_EFETIVO = own;
+      }
+    } else {
+      cliente.DIAS_SEM_COMPRA_EFETIVO = cliente.DIAS_SEM_COMPRA;
+    }
+
     const { data: maquinas, error: errMaq } = await supabase
       .from('crm_parquemaquinas')
       .select('*')

@@ -5,6 +5,7 @@ import { Loader2, MapPin, Search, Tag, X, ChevronLeft, ChevronRight, Users } fro
 import Cliente360Modal from '@/components/Cliente360Modal';
 
 import { useData } from '@/contexts/DataContext';
+import { diasEf, recenciaDeOutraFilial } from '@/lib/recencia';
 
 export default function ClientesPage() {
   const { clientes, loading } = useData();
@@ -66,10 +67,12 @@ export default function ClientesPage() {
       const passaStatus = statusFiltro ? c.STATUS_BASE === statusFiltro : true;
       const passaUf = ufFiltro ? c.UF === ufFiltro : true;
 
+      // dias efetivo = compra mais recente entre todas as filiais do grupo (CNPJ_RAIZ)
+      const dias = diasEf(c);
       let passaDias = true;
-      if (diasFiltro === '30') passaDias = c.DIAS_SEM_COMPRA && c.DIAS_SEM_COMPRA > 30;
-      if (diasFiltro === '90') passaDias = c.DIAS_SEM_COMPRA && c.DIAS_SEM_COMPRA > 90;
-      if (diasFiltro === '120') passaDias = c.DIAS_SEM_COMPRA && c.DIAS_SEM_COMPRA > 120;
+      if (diasFiltro === '30') passaDias = dias != null && dias > 30;
+      if (diasFiltro === '90') passaDias = dias != null && dias > 90;
+      if (diasFiltro === '120') passaDias = dias != null && dias > 120;
 
       let passaMarca = true;
       if (marcaConcFiltro === '__ANY__') passaMarca = !!c.MARCA_CONCORRENTE;
@@ -227,7 +230,7 @@ export default function ClientesPage() {
                   <th className="px-6 py-4 font-semibold border-b border-white/5 cursor-pointer hover:bg-white/5" onClick={() => handleSort('NOME_CLIENTE')}>Cliente ↕</th>
                   <th className="px-6 py-4 font-semibold border-b border-white/5 cursor-pointer hover:bg-white/5" onClick={() => handleSort('CIDADE')}>Localização ↕</th>
                   <th className="px-6 py-4 font-semibold border-b border-white/5 cursor-pointer hover:bg-white/5" onClick={() => handleSort('TELEFONE')}>Contato ↕</th>
-                  <th className="px-6 py-4 font-semibold border-b border-white/5 cursor-pointer hover:bg-white/5" onClick={() => handleSort('DIAS_SEM_COMPRA')}>Dias sem Comprar ↕</th>
+                  <th className="px-6 py-4 font-semibold border-b border-white/5 cursor-pointer hover:bg-white/5" onClick={() => handleSort('DIAS_SEM_COMPRA_EFETIVO')}>Dias sem Comprar ↕</th>
                   <th className="px-6 py-4 font-semibold border-b border-white/5 cursor-pointer hover:bg-white/5" onClick={() => handleSort('STATUS_BASE')}>Status ↕</th>
                 </tr>
               </thead>
@@ -287,9 +290,17 @@ export default function ClientesPage() {
                       <div className="text-xs text-gray-500 max-w-[200px] truncate" title={c.EMAIL}>{c.EMAIL}</div>
                     </td>
                     <td className="px-6 py-4">
-                      {c.DIAS_SEM_COMPRA !== null ? (
-                        <div className={`font-semibold ${c.DIAS_SEM_COMPRA > 90 ? 'text-red-400' : c.DIAS_SEM_COMPRA > 30 ? 'text-amber-400' : 'text-emerald-400'}`}>
-                          {c.DIAS_SEM_COMPRA} dias
+                      {diasEf(c) !== null ? (
+                        <div className={`font-semibold ${(diasEf(c) as number) > 90 ? 'text-red-400' : (diasEf(c) as number) > 30 ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          {diasEf(c)} dias
+                          {recenciaDeOutraFilial(c) && (
+                            <span
+                              className="ml-1.5 text-[10px] font-bold uppercase tracking-wider bg-sky-500/15 text-sky-300 border border-sky-500/30 px-1.5 py-0.5 rounded-full"
+                              title={`Comprou há ${diasEf(c)} dias na filial ${c.FILIAL_GRUPO_RECENTE} (mesmo CPF/CNPJ). Este cadastro está há ${c.DIAS_SEM_COMPRA} dias parado.`}
+                            >
+                              📍 filial {c.FILIAL_GRUPO_RECENTE}
+                            </span>
+                          )}
                         </div>
                       ) : (
                         <span className="text-gray-500 text-xs">Sem Histórico</span>

@@ -60,7 +60,7 @@ export async function GET(request: Request) {
       while (true) {
         const { data, error: errClientes } = await supabase
           .from('crm_clientes')
-          .select('CODIGO_CLIENTE, LOJA_CLIENTE, NOME_CLIENTE, VENDEDOR_RESP, NOME_VENDEDOR_RESP, DIAS_SEM_COMPRA')
+          .select('CODIGO_CLIENTE, LOJA_CLIENTE, NOME_CLIENTE, VENDEDOR_RESP, NOME_VENDEDOR_RESP, DIAS_SEM_COMPRA, CNPJ_RAIZ')
           .eq('STATUS_BASE', 'ATIVO')
           .gt('DIAS_SEM_COMPRA', 120)
           .range(from, from + PAGE - 1);
@@ -70,9 +70,25 @@ export async function GET(request: Request) {
         from += PAGE;
       }
     }
+
+    // Recência consolidada por grupo (CNPJ_RAIZ): se o cliente comprou em OUTRA filial
+    // nos últimos 120 dias, ele NÃO é evasão — não gera tarefa de resgate (falso churn).
+    // A view ignora RLS; aqui rodamos com service_role, então enxerga tudo de qualquer jeito.
+    const recenciaGrupo = new Map<string, number>();
+    {
+      const { data: grupos } = await supabase
+        .from('crm_recencia_grupo')
+        .select('cnpj_raiz, dias_grupo');
+      for (const g of grupos || []) {
+        if (g.dias_grupo != null) recenciaGrupo.set(g.cnpj_raiz, g.dias_grupo);
+      }
+    }
     {
       for (const c of clientes) {
-        if (c.DIAS_SEM_COMPRA > 120) {
+        // dias efetivo = menor entre o cadastro local e a compra mais recente do grupo
+        const diasGrupo = c.CNPJ_RAIZ ? recenciaGrupo.get(c.CNPJ_RAIZ) : undefined;
+        const diasEfetivo = (diasGrupo != null && diasGrupo < c.DIAS_SEM_COMPRA) ? diasGrupo : c.DIAS_SEM_COMPRA;
+        if (diasEfetivo > 120) {
           const cliId = `${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`;
           if (clientesProcessados.has(cliId)) continue;
 
@@ -86,10 +102,10 @@ export async function GET(request: Request) {
           if (!jaExiste) {
             clientesProcessados.add(cliId);
             const payload = {
-              titulo: `Resgate de Inatividade (${c.DIAS_SEM_COMPRA} dias)`,
+              titulo: `Resgate de Inatividade (${diasEfetivo} dias)`,
               tipo: 'LIGAR',
-              prioridade: c.DIAS_SEM_COMPRA > 90 ? 'URGENTE' : 'ALTA',
-              descricao: `Cliente ativo sem fluxo financeiro há ${c.DIAS_SEM_COMPRA} dias.\nReative o relacionamento e identifique o motivo do afastamento.`,
+              prioridade: diasEfetivo > 90 ? 'URGENTE' : 'ALTA',
+              descricao: `Cliente ativo sem fluxo financeiro há ${diasEfetivo} dias (considerando todas as filiais do grupo).\nReative o relacionamento e identifique o motivo do afastamento.`,
               codigo_cliente: c.CODIGO_CLIENTE,
               loja_cliente: c.LOJA_CLIENTE,
               nome_cliente: c.NOME_CLIENTE,

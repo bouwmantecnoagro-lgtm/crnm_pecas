@@ -82,6 +82,37 @@ async function fetchAll(
 }
 
 // ---------------------------------------------------------------------------
+// anexarRecenciaGrupo — consolida a "última compra real" por CNPJ_RAIZ.
+// A view crm_recencia_grupo ignora a RLS (security_invoker=false) pra enxergar
+// TODAS as filiais do grupo — sem isso, um vendedor que só vê o cadastro parado
+// de um cliente o marcaria como evadido, mesmo ele tendo comprado em outra filial.
+// Anexa DIAS_SEM_COMPRA_EFETIVO (sempre) + dados do grupo (quando a compra mais
+// recente veio de outra filial), pra alimentar a classificação de churn no front.
+// ---------------------------------------------------------------------------
+async function anexarRecenciaGrupo(supabase: SupabaseClient, clientes: any[]): Promise<void> {
+  const { data: grupos, error } = await supabase
+    .from('crm_recencia_grupo')
+    .select('cnpj_raiz, dias_grupo, data_grupo, qtd_cadastros, filial_recente');
+
+  // Falha silenciosa: se a view ainda não foi criada, o front cai no DIAS_SEM_COMPRA cru.
+  const mapa = new Map<string, any>();
+  if (!error && grupos) for (const g of grupos) mapa.set(g.cnpj_raiz, g);
+
+  for (const c of clientes) {
+    const own = c.DIAS_SEM_COMPRA;
+    const g = c.CNPJ_RAIZ ? mapa.get(c.CNPJ_RAIZ) : null;
+    if (g && g.dias_grupo != null && (own == null || g.dias_grupo < own)) {
+      c.DIAS_SEM_COMPRA_EFETIVO = g.dias_grupo;
+      c.DATA_ULT_COMPRA_GRUPO = g.data_grupo;
+      c.QTD_CADASTROS_GRUPO = g.qtd_cadastros;
+      c.FILIAL_GRUPO_RECENTE = g.filial_recente;
+    } else {
+      c.DIAS_SEM_COMPRA_EFETIVO = own;
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // fetchOrcamentosRecentes — só os orçamentos dos últimos 365 dias (RLS aplica).
 // ---------------------------------------------------------------------------
 async function fetchOrcamentosRecentes(supabase: SupabaseClient): Promise<any[]> {
@@ -140,6 +171,7 @@ export async function GET(request: Request) {
       case 'clientes':
       case 'crm_clientes': {
         const data = await fetchAll(supabase, 'crm_clientes', COLS_CLIENTES, 'DIAS_SEM_COMPRA');
+        await anexarRecenciaGrupo(supabase, data);
         return NextResponse.json(data);
       }
       case 'orcamentos':

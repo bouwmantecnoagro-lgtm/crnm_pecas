@@ -6,6 +6,7 @@ import Link from 'next/link';
 import Cliente360Modal from '@/components/Cliente360Modal';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
 import { useData } from '@/contexts/DataContext';
+import { diasEf, recenciaDeOutraFilial } from '@/lib/recencia';
 
 export default function PipelineCarteira() {
   const { clientes, loading, orcamentos, refreshAcoes, acoes } = useData();
@@ -45,8 +46,9 @@ export default function PipelineCarteira() {
   };
 
   clientes.filter(c => c.STATUS_BASE === 'ATIVO').forEach(c => {
-    const dias = c.DIAS_SEM_COMPRA || 0;
-    
+    // dias efetivo = compra mais recente entre todas as filiais do grupo (CNPJ_RAIZ)
+    const dias = diasEf(c) ?? 0;
+
     if (dias <= 30) {
       colunas.saudavel.items.push(c);
     } else if (dias <= 60) {
@@ -94,7 +96,7 @@ export default function PipelineCarteira() {
 
             {/* Cards da Coluna */}
             <div className="p-3 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
-              {coluna.items.sort((a,b) => (b.DIAS_SEM_COMPRA || 0) - (a.DIAS_SEM_COMPRA || 0)).map((c, i) => {
+              {coluna.items.sort((a,b) => (diasEf(b) ?? 0) - (diasEf(a) ?? 0)).map((c, i) => {
                 const numAcoes = acoesPorCliente(c.CODIGO_CLIENTE, c.LOJA_CLIENTE);
                 return (
                 <div 
@@ -105,10 +107,18 @@ export default function PipelineCarteira() {
                   <div className={`absolute top-0 left-0 w-1 h-full ${coluna.bg.replace('10', '50')} opacity-50`} />
                   
                   <div className="flex justify-between items-start mb-2 pl-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-[10px] font-bold bg-white/10 text-gray-400 px-2 py-0.5 rounded uppercase flex gap-1 items-center">
                         Lj: {c.LOJA_CLIENTE}
                       </span>
+                      {recenciaDeOutraFilial(c) && (
+                        <span
+                          className="flex items-center gap-0.5 text-[9px] font-bold bg-sky-500/20 text-sky-300 px-1.5 py-0.5 rounded-full border border-sky-500/20"
+                          title={`Comprou há ${diasEf(c)} dias na filial ${c.FILIAL_GRUPO_RECENTE} (mesmo CPF/CNPJ). Este cadastro está há ${c.DIAS_SEM_COMPRA} dias parado.`}
+                        >
+                          <MapPin size={8} /> tb. filial {c.FILIAL_GRUPO_RECENTE}
+                        </span>
+                      )}
                       {numAcoes > 0 && (
                         <span className="flex items-center gap-0.5 text-[9px] font-bold bg-violet-500/20 text-violet-400 px-1.5 py-0.5 rounded-full border border-violet-500/20">
                           <Zap size={8} /> {numAcoes}
@@ -116,7 +126,7 @@ export default function PipelineCarteira() {
                       )}
                     </div>
                     <span className={`text-[11px] font-black px-2 py-0.5 rounded-sm shadow-sm ${coluna.bg} ${coluna.cor}`}>
-                      {c.DIAS_SEM_COMPRA || 0} DIAS
+                      {diasEf(c) ?? 0} DIAS
                     </span>
                   </div>
                   
