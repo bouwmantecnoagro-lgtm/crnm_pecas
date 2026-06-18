@@ -23,8 +23,14 @@
 --   próprio cadastro e a consolidação falharia). NÃO expõe linha crua de
 --   cliente — só o agregado de recência por raiz.
 --
--- Só grupos com 2+ cadastros ATIVOS entram (having count > 1). Cliente sem
--- duplicata não precisa de consolidação — a API cai no DIAS_SEM_COMPRA dele.
+-- Considera TODOS os cadastros do mesmo CNPJ raiz (ativo, bloqueado ou inativo):
+-- a pergunta é "quando essa empresa comprou pela última vez, em qualquer cadastro".
+-- Ex.: DJC Comércio — cadastro F01 BLOQUEADO há 405d + cadastro F10 ATIVO há 27d:
+-- o grupo comprou há 27d, então o cadastro bloqueado não deve parecer evasão.
+-- (Se filtrasse só ATIVO, grupos com 1 ativo + 1 bloqueado ficavam de fora.)
+--
+-- Só grupos com 2+ cadastros entram (having count > 1). Cliente sem duplicata
+-- não precisa de consolidação — a API cai no DIAS_SEM_COMPRA dele.
 -- =====================================================================
 
 create or replace view public.crm_recencia_grupo
@@ -36,8 +42,7 @@ select
   count(*)                                                             as qtd_cadastros,
   (array_agg(c."FILIAL" order by c."DIAS_SEM_COMPRA" asc nulls last))[1] as filial_recente
 from public.crm_clientes c
-where c."STATUS_BASE" = 'ATIVO'
-  and c."CNPJ_RAIZ" is not null
+where c."CNPJ_RAIZ" is not null
   and c."DIAS_SEM_COMPRA" is not null
 group by c."CNPJ_RAIZ"
 having count(*) > 1;
@@ -46,5 +51,8 @@ having count(*) > 1;
 revoke all on public.crm_recencia_grupo from public, anon;
 grant select on public.crm_recencia_grupo to authenticated, service_role;
 
--- Verificação (deve devolver dias_grupo = 49 para a raiz da Vaneila):
--- select * from public.crm_recencia_grupo where cnpj_raiz = '00891895906';
+-- Verificação:
+--   Vaneila (2 ativos) -> dias_grupo = 49:
+--   select * from public.crm_recencia_grupo where cnpj_raiz = '00891895906';
+--   DJC (1 ativo + 1 bloqueado) -> dias_grupo = 27, filial_recente = 10:
+--   select * from public.crm_recencia_grupo where cnpj_raiz = '30052511';
