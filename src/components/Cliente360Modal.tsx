@@ -7,6 +7,7 @@ import CriarAcaoModal from '@/components/CriarAcaoModal';
 import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
 import IndicarTreinamentoModal from '@/components/IndicarTreinamentoModal';
 import { useData } from '@/contexts/DataContext';
+import { diasEf, recenciaDeOutraFilial } from '@/lib/recencia';
 
 function fixEncoding(str: any) {
   if (typeof str !== 'string' || !str) return str;
@@ -227,19 +228,19 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
 
   const { cliente, maquinas, orcamentos: orcamentosCliente } = data;
 
-  // Dados calculados
-  const diasSemCompra = cliente.DIAS_SEM_COMPRA || 0;
+  // Dados calculados — dias efetivo = compra mais recente entre todas as filiais do grupo (CNPJ_RAIZ)
+  const diasSemCompra = diasEf(cliente) ?? 0;
   let statusCor = 'text-emerald-400';
   let statusBg = 'bg-emerald-500/10';
-  let statusIcon = <ShieldCheck size={18} />;
+  let statusIcon = <ShieldCheck size={13} />;
   let statusTexto = 'Base Saudável';
 
   if (diasSemCompra > 90) {
-    statusCor = 'text-red-400'; statusBg = 'bg-red-500/10'; statusIcon = <Skull size={18} />; statusTexto = 'Evasão (Churn)';
+    statusCor = 'text-red-400'; statusBg = 'bg-red-500/10'; statusIcon = <Skull size={13} />; statusTexto = 'Evasão (Churn)';
   } else if (diasSemCompra > 60) {
-    statusCor = 'text-orange-400'; statusBg = 'bg-orange-500/10'; statusIcon = <Flame size={18} />; statusTexto = 'Risco Alto';
+    statusCor = 'text-orange-400'; statusBg = 'bg-orange-500/10'; statusIcon = <Flame size={13} />; statusTexto = 'Risco Alto';
   } else if (diasSemCompra > 30) {
-    statusCor = 'text-amber-400'; statusBg = 'bg-amber-500/10'; statusIcon = <AlertTriangle size={18} />; statusTexto = 'Atenção (Esfriando)';
+    statusCor = 'text-amber-400'; statusBg = 'bg-amber-500/10'; statusIcon = <AlertTriangle size={13} />; statusTexto = 'Atenção (Esfriando)';
   }
 
   const acoesAtivas = acoesCliente.filter((a: any) => ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'].includes(a.status));
@@ -249,64 +250,72 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
       <div className="bg-[#0b101a] border border-white/10 w-full max-w-6xl h-[90vh] rounded-2xl shadow-2xl overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
         
         {/* HEADER */}
-        <div className="p-6 border-b border-white/10 flex justify-between items-start bg-white/[0.02] shrink-0 relative overflow-hidden">
+        <div className="p-4 border-b border-white/10 flex justify-between items-start gap-3 bg-white/[0.02] shrink-0 relative overflow-hidden">
           {/* Decorative Background */}
           <div className="absolute top-0 right-0 w-64 h-64 bg-sky-500/10 rounded-full blur-[80px] pointer-events-none -translate-y-1/2 translate-x-1/3"></div>
 
-          <div className="flex gap-4 items-center relative z-10">
-            <div className={`w-16 h-16 rounded-2xl flex items-center justify-center font-bold text-2xl border ${statusBg} ${statusCor} border-current/20`}>
+          <div className="flex gap-3 items-center relative z-10 min-w-0">
+            <div className={`shrink-0 w-11 h-11 rounded-xl flex items-center justify-center font-bold text-base border ${statusBg} ${statusCor} border-current/20`}>
               {(cliente.NOME_CLIENTE || '??').substring(0,2).toUpperCase()}
             </div>
-            <div>
-              <div className="flex items-center gap-3 mb-1">
-                <h2 className="text-2xl font-bold text-white uppercase">{cliente.NOME_CLIENTE}</h2>
-                <span className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border border-current ${statusBg} ${statusCor}`}>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-0.5">
+                <h2 className="text-lg font-bold text-white uppercase leading-tight">{cliente.NOME_CLIENTE}</h2>
+                <span className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border border-current ${statusBg} ${statusCor}`}>
                   {statusIcon} {statusTexto}
                 </span>
+                {recenciaDeOutraFilial(cliente) && (
+                  <span
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/20 border border-sky-500/40 text-sky-300"
+                    title={`Este cadastro está há ${cliente.DIAS_SEM_COMPRA} dias sem compra, mas o cliente (mesmo CPF/CNPJ) comprou há ${diasSemCompra} dias na filial ${cliente.FILIAL_GRUPO_RECENTE}.`}
+                  >
+                    📍 Comprou na filial {cliente.FILIAL_GRUPO_RECENTE}
+                  </span>
+                )}
                 {cliente.STATUS_BASE === 'BLOQUEADO' && (
-                  <span className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-red-600 border border-red-500 text-white shadow-[0_0_15px_rgba(220,38,38,0.5)] animate-pulse">
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-600 border border-red-500 text-white shadow-[0_0_10px_rgba(220,38,38,0.4)]">
                     ⚠️ BLOQUEADO
                   </span>
                 )}
                 {cliente.MARCA_CONCORRENTE && (
                   <span
-                    className="flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-purple-500/20 border border-purple-500/40 text-purple-300"
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/20 border border-purple-500/40 text-purple-300"
                     title={cliente.MODELO_CONCORRENTE ? `Modelo: ${cliente.MODELO_CONCORRENTE}` : 'Marca concorrente registrada via ação'}
                   >
                     🚜 {cliente.MARCA_CONCORRENTE}{cliente.MODELO_CONCORRENTE ? ` ${cliente.MODELO_CONCORRENTE}` : ''}
                   </span>
                 )}
               </div>
-              <p className="text-sm text-gray-400 flex items-center gap-4">
+              <p className="text-xs text-gray-400 flex flex-wrap items-center gap-x-3">
                 <span>Cod: <strong className="text-gray-300 font-mono">{cliente.CODIGO_CLIENTE}</strong> Lj: {cliente.LOJA_CLIENTE}</span>
                 <span>CNPJ/CPF: {cliente.CNPJ_CPF}</span>
               </p>
             </div>
           </div>
           
-          <div className="flex items-center gap-2 relative z-10">
+          <div className="flex shrink-0 items-center gap-1.5 relative z-10">
             {/* Botão Indicar Treinamento (handoff p/ a Paola) */}
             <button
               onClick={() => setIndicarModal(true)}
               disabled={indicacaoAberta}
               title={indicacaoAberta ? 'Já existe uma indicação em aberto para este cliente' : 'Indicar este cliente para treinamento'}
-              className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all border ${
+              className={`px-2.5 py-1.5 text-[11px] font-bold rounded-lg flex items-center gap-1 transition-all border ${
                 indicacaoAberta
                   ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 cursor-default'
                   : 'bg-sky-500/10 hover:bg-sky-500/20 border-sky-500/30 text-sky-300'
               }`}
             >
-              <GraduationCap size={14} /> {indicacaoAberta ? 'Indicado' : 'Indicar Treinamento'}
+              <GraduationCap size={13} /> {indicacaoAberta ? 'Indicado' : 'Indicar'}
             </button>
             {/* Botão Nova Ação */}
             <button
               onClick={() => setCriarAcaoModal(true)}
-              className="px-3 py-2 bg-gradient-to-r from-violet-600 to-sky-600 hover:from-violet-500 hover:to-sky-500 text-white text-xs font-bold rounded-lg flex items-center gap-1.5 shadow-lg shadow-violet-500/20 transition-all"
+              className="px-2.5 py-1.5 bg-gradient-to-r from-violet-600 to-sky-600 hover:from-violet-500 hover:to-sky-500 text-white text-[11px] font-bold rounded-lg flex items-center gap-1 shadow-lg shadow-violet-500/20 transition-all"
             >
-              <Zap size={14} /> Nova Ação
+              <Zap size={13} /> Nova Ação
             </button>
-            <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors">
-              <X size={24} />
+            <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors">
+              <X size={20} />
             </button>
           </div>
         </div>
