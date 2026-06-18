@@ -16,7 +16,7 @@ const PERIODOS = [
 ];
 
 export default function PipelineOrcamentos() {
-  const { orcamentos, loading, clientes, refreshAcoes, acoes } = useData();
+  const { orcamentos, loading, loadingOrcamentos, clientes, refreshAcoes, acoes } = useData();
   const [criarAcaoData, setCriarAcaoData] = useState<any>(null);
 
   // Filtros globais (mesmo padrão do Dashboard) — sem isso o Pipeline acumulava
@@ -119,7 +119,7 @@ export default function PipelineOrcamentos() {
     }
   });
 
-  if (loading) {
+  if (loading || loadingOrcamentos) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
         <Loader2 size={48} className="text-emerald-400 animate-spin" />

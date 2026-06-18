@@ -74,7 +74,7 @@ export default function OrcamentosPage() {
 }
 
 function OrcamentosContent() {
-  const { orcamentos, loading } = useData();
+  const { orcamentos, loading, loadingOrcamentos } = useData();
   const searchParams = useSearchParams();
   const [busca, setBusca] = useState('');
   const deferredBusca = useDeferredValue(busca);
@@ -267,7 +267,7 @@ function OrcamentosContent() {
         </div>
         </div>
 
-      {loading ? (
+      {(loading || loadingOrcamentos) ? (
         <div className="flex items-center justify-center h-64">
           <Loader2 size={32} className="text-emerald-400 animate-spin" />
         </div>

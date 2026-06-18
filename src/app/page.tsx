@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { AlertCircle, ChevronRight, MapPin, ReceiptText, Tractor, TrendingUp, Users, X, Database, Zap, Filter, Award, AlertTriangle, RotateCcw, Hourglass, Info } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, Cell, LabelList } from 'recharts';
 import Link from 'next/link';
@@ -30,10 +30,13 @@ function emissaoNoRange(dateStr: any, ini: string, fim: string): boolean {
 }
 
 export default function Dashboard() {
-  const { clientes, orcamentos, maquinas, loading, ultimaSync, acoes, refreshAcoes } = useData();
+  const { clientes, orcamentos, maquinas, loading, loadingOrcamentos, ultimaSync, acoes, refreshAcoes } = useData();
   const [vendedorSelecionado, setVendedorSelecionado] = useState<any>(null);
   const [clienteModal, setClienteModal] = useState<{codigo: string, loja: string} | null>(null);
   const [concluirAcao, setConcluirAcao] = useState<any>(null);
+  // KPIs de orçamento agregados no servidor (função dashboard_orcamentos_kpis).
+  // Chegam em poucos KB, antes dos 37k orçamentos — KPIs do topo ficam instantâneos.
+  const [kpi, setKpi] = useState<any>(null);
 
   // === Filtros globais do dashboard ===
   const [fVendedor, setFVendedor] = useState('');
@@ -49,6 +52,25 @@ export default function Dashboard() {
   const [crossFabricante, setCrossFabricante] = useState('');
   const [crossModelo, setCrossModelo] = useState('');
   const [crossVendedor, setCrossVendedor] = useState('');
+
+  // Busca os KPIs de orçamento agregados no servidor sempre que os filtros mudam.
+  // (Modo demo usa o cálculo client-side sobre demo_data.json.)
+  useEffect(() => {
+    const isDemo = typeof window !== 'undefined' && window.location.search.includes('demo=true');
+    if (isDemo) return;
+    const params = new URLSearchParams();
+    if (fVendedor) params.set('vendedor', fVendedor);
+    if (fFilial) params.set('filial', fFilial);
+    if (fEmissaoIni) params.set('emissaoIni', fEmissaoIni);
+    if (fEmissaoFim) params.set('emissaoFim', fEmissaoFim);
+    params.set('excluirInternos', String(fExcluirInternos));
+    let cancel = false;
+    fetch(`/api/dados/dashboard-kpis?${params.toString()}`)
+      .then(r => r.json())
+      .then(d => { if (!cancel && d && !d.error) setKpi(d); })
+      .catch(() => { /* mantém fallback client-side */ });
+    return () => { cancel = true; };
+  }, [fVendedor, fFilial, fEmissaoIni, fEmissaoFim, fExcluirInternos]);
 
   // === Opções dos combos de filtro ===
   const vendedoresDisponiveis = useMemo(() => {
@@ -171,13 +193,28 @@ export default function Dashboard() {
   const totalCancelado = useMemo(() => orcCancelados.reduce((acc, c) => acc + (c.ORC_VALOR_TOTAL || 0), 0), [orcCancelados]);
   const totalVencido = useMemo(() => orcVencidos.reduce((acc, c) => acc + (c.ORC_VALOR_TOTAL || 0), 0), [orcVencidos]);
 
-  const fechadosQtd = orcFaturados.length + orcCancelados.length + orcVencidos.length;
-  const fechadosValor = totalFaturado + totalCancelado + totalVencido;
+  // Valores dos cards de orçamento: prefere o agregado do servidor (kpi) — chega antes
+  // dos 37k orçamentos; cai no cálculo client-side (demo / kpi indisponível).
+  const kAbertosValor  = kpi ? Number(kpi.abertos_valor)  : totalAbertos;
+  const kAbertosUnicos = kpi ? Number(kpi.abertos_unicos) : orcAbertosUnicos;
+  const kAbertosItens  = kpi ? Number(kpi.abertos_itens)  : orcAbertos.length;
+  const kFatQtd   = kpi ? Number(kpi.fat_qtd)    : orcFaturados.length;
+  const kFatVal   = kpi ? Number(kpi.fat_valor)  : totalFaturado;
+  const kCanQtd   = kpi ? Number(kpi.can_qtd)    : orcCancelados.length;
+  const kCanVal   = kpi ? Number(kpi.can_valor)  : totalCancelado;
+  const kVenQtd   = kpi ? Number(kpi.ven_qtd)    : orcVencidos.length;
+  const kVenVal   = kpi ? Number(kpi.ven_valor)  : totalVencido;
+  const kVen30Qtd = kpi ? Number(kpi.ven30_qtd)   : orcVencidos30d.length;
+  const kVen30Val = kpi ? Number(kpi.ven30_valor) : totalVencidos30d;
 
-  const winRateQtd = fechadosQtd > 0 ? (orcFaturados.length / fechadosQtd) * 100 : 0;
-  const winRateValor = fechadosValor > 0 ? (totalFaturado / fechadosValor) * 100 : 0;
-  const taxaCancelamento = fechadosQtd > 0 ? (orcCancelados.length / fechadosQtd) * 100 : 0;
-  const taxaVencimento = fechadosQtd > 0 ? (orcVencidos.length / fechadosQtd) * 100 : 0;
+  const fechadosQtd = kFatQtd + kCanQtd + kVenQtd;
+  const fechadosValor = kFatVal + kCanVal + kVenVal;
+  const winRateQtd = fechadosQtd > 0 ? (kFatQtd / fechadosQtd) * 100 : 0;
+  const winRateValor = fechadosValor > 0 ? (kFatVal / fechadosValor) * 100 : 0;
+  const taxaCancelamento = fechadosQtd > 0 ? (kCanQtd / fechadosQtd) * 100 : 0;
+  const taxaVencimento = fechadosQtd > 0 ? (kVenQtd / fechadosQtd) * 100 : 0;
+  // Número de orçamento confiável? (agregado pronto OU orçamentos já carregados)
+  const orcReady = !!kpi || !loadingOrcamentos;
 
   // Ranking de Eficácia por Vendedor (amostra mínima 3 fechados para evitar ruído)
   const rankingEficacia = useMemo(() => {
@@ -486,8 +523,8 @@ export default function Dashboard() {
               />
               <KpiCard
                 title="Orçamentos Abertos"
-                value={`R$ ${totalAbertos.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`}
-                subtitle={`${orcAbertosUnicos} orçamentos • ${orcAbertos.length} itens`}
+                value={orcReady ? `R$ ${kAbertosValor.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}` : '…'}
+                subtitle={orcReady ? `${kAbertosUnicos} orçamentos • ${kAbertosItens} itens` : 'carregando…'}
                 icon={<ReceiptText className="text-blue-400" />}
                 accentColor="sky"
                 href="/orcamentos"
@@ -504,8 +541,8 @@ export default function Dashboard() {
               />
               <KpiCard
                 title="Vencidos · últimos 30 dias"
-                value={orcVencidos30d.length.toString()}
-                subtitle={`R$ ${totalVencidos30d.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})} para recuperar`}
+                value={orcReady ? kVen30Qtd.toString() : '…'}
+                subtitle={`R$ ${kVen30Val.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})} para recuperar`}
                 icon={<Hourglass className="text-amber-400" />}
                 accentColor="amber"
                 href="/orcamentos?status=VENCIDO&periodoVenc=30"
@@ -524,39 +561,39 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 md:grid-cols-5 gap-5">
               <KpiCard
                 title="Win Rate (Qtd)"
-                value={`${winRateQtd.toFixed(1)}%`}
-                subtitle={`${orcFaturados.length} ganhos de ${fechadosQtd} fechados`}
+                value={orcReady ? `${winRateQtd.toFixed(1)}%` : '…'}
+                subtitle={`${kFatQtd} ganhos de ${fechadosQtd} fechados`}
                 icon={<TrendingUp className="text-emerald-400" />}
                 accentColor="emerald"
                 tooltip="% de orçamentos faturados sobre o total fechado, por contagem. Fórmula: FATURADO / (FATURADO + CANCELADO + VENCIDO). VENCIDO conta como perda (orçamento que expirou sem fechar)."
               />
               <KpiCard
                 title="Win Rate (R$)"
-                value={`${winRateValor.toFixed(1)}%`}
-                subtitle={`R$ ${(totalFaturado/1000).toFixed(0)}k de R$ ${(fechadosValor/1000).toFixed(0)}k`}
+                value={orcReady ? `${winRateValor.toFixed(1)}%` : '…'}
+                subtitle={`R$ ${(kFatVal/1000).toFixed(0)}k de R$ ${(fechadosValor/1000).toFixed(0)}k`}
                 icon={<TrendingUp className="text-emerald-400" />}
                 accentColor="emerald"
                 tooltip="% do valor (R$) faturado sobre o valor total fechado. Fórmula: Σ R$ FATURADO / Σ R$ (FATURADO + CANCELADO + VENCIDO). Pode divergir muito do Win Rate por Qtd quando há orçamentos com tickets muito diferentes."
               />
               <KpiCard
                 title="Taxa de Perdidos"
-                value={`${taxaCancelamento.toFixed(1)}%`}
-                subtitle={`${orcCancelados.length} perdidos`}
+                value={orcReady ? `${taxaCancelamento.toFixed(1)}%` : '…'}
+                subtitle={`${kCanQtd} perdidos`}
                 icon={<X className="text-red-400" />}
                 accentColor="red"
                 tooltip="% de orçamentos perdidos (CANCELADO no ERP) sobre o total fechado. Fórmula: CANCELADO / (FATURADO + CANCELADO + VENCIDO). Indica perdas ativas (cliente desistiu/recusou)."
               />
               <KpiCard
                 title="Taxa de Vencimento"
-                value={`${taxaVencimento.toFixed(1)}%`}
-                subtitle={`${orcVencidos.length} orçamentos expiraram`}
+                value={orcReady ? `${taxaVencimento.toFixed(1)}%` : '…'}
+                subtitle={`${kVenQtd} orçamentos expiraram`}
                 icon={<Hourglass className="text-amber-400" />}
                 accentColor="amber"
                 tooltip="% de orçamentos que expiraram sem fechamento. Fórmula: VENCIDO / (FATURADO + CANCELADO + VENCIDO). Geralmente indica falha de follow-up — proposta enviada e nunca retomada."
               />
               <KpiCard
                 title="R$ Deixado na Mesa"
-                value={`R$ ${totalVencido.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}`}
+                value={orcReady ? `R$ ${kVenVal.toLocaleString('pt-BR', {minimumFractionDigits: 0, maximumFractionDigits: 0})}` : '…'}
                 subtitle="Volume em orçamentos vencidos"
                 icon={<AlertTriangle className="text-amber-400" />}
                 accentColor="amber"

@@ -9,6 +9,7 @@ interface DataContextProps {
   maquinas: any[];
   acoes: any[];
   loading: boolean;
+  loadingOrcamentos: boolean;
   ultimaSync: string;
   refreshAcoes: () => void;
 }
@@ -19,6 +20,7 @@ const DataContext = createContext<DataContextProps>({
   maquinas: [],
   acoes: [],
   loading: true,
+  loadingOrcamentos: true,
   ultimaSync: '',
   refreshAcoes: () => {},
 });
@@ -105,6 +107,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [maquinas, setMaquinas] = useState<any[]>([]);
   const [acoes, setAcoes] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingOrcamentos, setLoadingOrcamentos] = useState(true);
   const [ultimaSync, setUltimaSync] = useState<string>('');
 
   const fetchAcoes = useCallback(async () => {
@@ -119,78 +122,92 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     let isMounted = true;
+
+    // Calcula "última sync" pelo maior updated_at entre as coleções fornecidas.
+    const aplicarUltimaSync = (...arrs: any[][]) => {
+      const comData = arrs.flat().filter((r: any) => r?.updated_at);
+      if (comData.length === 0) return;
+      const maxTs = comData.reduce((max: number, r: any) => {
+        const t = new Date(r.updated_at).getTime();
+        return t > max ? t : max;
+      }, 0);
+      setUltimaSync(new Date(maxTs).toLocaleString('pt-BR'));
+    };
+
     async function carregarDados() {
       try {
         const isDemo = typeof window !== 'undefined' && window.location.search.includes('demo=true');
 
-        let cli, orc, maq, acoesData;
-
         if (isDemo) {
-          const res = await fetch('/demo_data.json');
-          const demo = await res.json();
-          cli = demo.clientes;
-          orc = demo.orcamentos;
-          maq = demo.maquinas;
-          acoesData = demo.acoes;
-        } else {
-          const supabase = createClient();
-          const { data: { user } } = await supabase.auth.getUser();
-          if (!user) {
-            // Sem sessão — middleware deveria ter redirecionado. Apenas evita
-            // carregar dados sem chave de cache válida.
-            if (isMounted) setLoading(false);
-            return;
-          }
-
-          // Registra acesso (1x por sessão de browser) — fiscal de adoção.
-          try {
-            if (!sessionStorage.getItem('acesso_logado')) {
-              sessionStorage.setItem('acesso_logado', '1');
-              fetch('/api/atividade/acesso', { method: 'POST' }).catch(() => {});
-            }
-          } catch { /* ignora storage indisponível */ }
-
-          pruneLegacyCache(user.id);
-          const cached = readCache(user.id);
-          if (cached) {
-            cli = cached.cli;
-            orc = cached.orc;
-            maq = cached.maq;
-            acoesData = cached.acoesData;
-          } else {
-            const [resCli, resOrc, resMaq, resAcoes] = await Promise.all([
-              fetch('/api/dados?tabela=crm_clientes'),
-              fetch('/api/dados?tabela=crm_orcamentos'),
-              fetch('/api/dados?tabela=crm_parquemaquinas'),
-              fetch('/api/acoes'),
-            ]);
-            [cli, orc, maq, acoesData] = await Promise.all([
-              resCli.json(), resOrc.json(), resMaq.json(), resAcoes.json(),
-            ]);
-            writeCache(user.id, { cli, orc, maq, acoesData });
-          }
+          const demo = await (await fetch('/demo_data.json')).json();
+          if (!isMounted) return;
+          setClientes(demo.clientes || []);
+          setMaquinas(demo.maquinas || []);
+          setAcoes(demo.acoes || []);
+          setOrcamentos(demo.orcamentos || []);
+          aplicarUltimaSync(demo.clientes || [], demo.orcamentos || []);
+          setLoading(false);
+          setLoadingOrcamentos(false);
+          return;
         }
 
-        if (isMounted) {
-          if (Array.isArray(cli)) setClientes(cli);
-          if (Array.isArray(orc)) setOrcamentos(orc);
-          if (Array.isArray(maq)) setMaquinas(maq);
-          if (Array.isArray(acoesData)) setAcoes(acoesData);
-
-          const todos = [...(Array.isArray(cli) ? cli : []), ...(Array.isArray(orc) ? orc : [])];
-          const comData = todos.filter(r => r.updated_at);
-          if (comData.length > 0) {
-            const maxTs = comData.reduce((max, r) => {
-              const t = new Date(r.updated_at).getTime();
-              return t > max ? t : max;
-            }, 0);
-            setUltimaSync(new Date(maxTs).toLocaleString('pt-BR'));
-          }
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          // Sem sessão — middleware deveria ter redirecionado.
+          if (isMounted) { setLoading(false); setLoadingOrcamentos(false); }
+          return;
         }
+
+        // Registra acesso (1x por sessão de browser) — fiscal de adoção.
+        try {
+          if (!sessionStorage.getItem('acesso_logado')) {
+            sessionStorage.setItem('acesso_logado', '1');
+            fetch('/api/atividade/acesso', { method: 'POST' }).catch(() => {});
+          }
+        } catch { /* ignora storage indisponível */ }
+
+        pruneLegacyCache(user.id);
+        const cached = readCache(user.id);
+        if (cached) {
+          if (!isMounted) return;
+          setClientes(Array.isArray(cached.cli) ? cached.cli : []);
+          setMaquinas(Array.isArray(cached.maq) ? cached.maq : []);
+          setAcoes(Array.isArray(cached.acoesData) ? cached.acoesData : []);
+          setOrcamentos(Array.isArray(cached.orc) ? cached.orc : []);
+          aplicarUltimaSync(cached.cli || [], cached.orc || []);
+          setLoading(false);
+          setLoadingOrcamentos(false);
+          return;
+        }
+
+        // FASE 1 — clientes/máquinas/ações (leves, ~11k linhas): liberam a UI
+        // imediatamente, sem esperar os ~37k orçamentos.
+        const [resCli, resMaq, resAcoes] = await Promise.all([
+          fetch('/api/dados?tabela=crm_clientes'),
+          fetch('/api/dados?tabela=crm_parquemaquinas'),
+          fetch('/api/acoes'),
+        ]);
+        const [cli, maq, acoesData] = await Promise.all([resCli.json(), resMaq.json(), resAcoes.json()]);
+        if (!isMounted) return;
+        if (Array.isArray(cli)) setClientes(cli);
+        if (Array.isArray(maq)) setMaquinas(maq);
+        if (Array.isArray(acoesData)) setAcoes(acoesData);
+        aplicarUltimaSync(Array.isArray(cli) ? cli : []);
+        setLoading(false);
+
+        // FASE 2 — orçamentos (pesado): carrega em segundo plano. Telas que
+        // dependem deles (Pipeline, Orçamentos, rankings/funil) observam loadingOrcamentos.
+        const orc = await (await fetch('/api/dados?tabela=crm_orcamentos')).json();
+        if (!isMounted) return;
+        if (Array.isArray(orc)) setOrcamentos(orc);
+        aplicarUltimaSync(Array.isArray(cli) ? cli : [], Array.isArray(orc) ? orc : []);
+        setLoadingOrcamentos(false);
+        writeCache(user.id, { cli, orc, maq, acoesData });
       } catch (err) {
         console.error('Erro ao carregar dados pro cache global:', err);
       } finally {
-        if (isMounted) setLoading(false);
+        if (isMounted) { setLoading(false); setLoadingOrcamentos(false); }
       }
     }
     carregarDados();
@@ -198,7 +215,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <DataContext.Provider value={{ clientes, orcamentos, maquinas, acoes, loading, ultimaSync, refreshAcoes: fetchAcoes }}>
+    <DataContext.Provider value={{ clientes, orcamentos, maquinas, acoes, loading, loadingOrcamentos, ultimaSync, refreshAcoes: fetchAcoes }}>
       {children}
     </DataContext.Provider>
   );
