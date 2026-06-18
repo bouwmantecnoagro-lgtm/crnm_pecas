@@ -6,7 +6,8 @@ export type EventoAtividade =
   | 'CRIAR_ACAO'
   | 'CONCLUIR_ACAO'
   | 'REAGENDAR_ACAO'
-  | 'OBSERVACAO_CLIENTE';
+  | 'OBSERVACAO_CLIENTE'
+  | 'INDICAR_TREINAMENTO';
 
 // Registra um evento de atividade. Fire-and-forget: NUNCA propaga erro — logar adoção
 // jamais pode quebrar a ação principal do usuário. Escreve via service role (RLS off p/ insert).

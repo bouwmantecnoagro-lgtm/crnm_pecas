@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { X, Loader2, MapPin, Phone, Mail, Tractor, ReceiptText, ShieldCheck, Flame, Skull, AlertTriangle, MessageCircle, Zap, Clock, CheckCircle2, Edit2, Save } from 'lucide-react';
+import { X, Loader2, MapPin, Phone, Mail, Tractor, ReceiptText, ShieldCheck, Flame, Skull, AlertTriangle, MessageCircle, Zap, Clock, CheckCircle2, Edit2, Save, GraduationCap } from 'lucide-react';
 import AcaoCard from '@/components/AcaoCard';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
 import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
+import IndicarTreinamentoModal from '@/components/IndicarTreinamentoModal';
 import { useData } from '@/contexts/DataContext';
 
 function fixEncoding(str: any) {
@@ -38,6 +39,10 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
   const [loadingAcoes, setLoadingAcoes] = useState(false);
   const [criarAcaoModal, setCriarAcaoModal] = useState(false);
   const [concluirAcao, setConcluirAcao] = useState<any>(null);
+
+  // Indicação de treinamento (handoff p/ a Paola)
+  const [indicarModal, setIndicarModal] = useState(false);
+  const [indicacaoAberta, setIndicacaoAberta] = useState(false);
 
   // Estados de edição de contato
   const [editandoContato, setEditandoContato] = useState(false);
@@ -80,6 +85,26 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
       setLoading(false);
     }
     load();
+  }, [codigoCliente, lojaCliente]);
+
+  // Status da indicação de treinamento (mostra "Indicado" se há uma em aberto)
+  async function carregarIndicacao() {
+    try {
+      const res = await fetch(
+        `/api/indicacoes-treinamento?codigo_cliente=${codigoCliente}&loja_cliente=${lojaCliente}`,
+      );
+      const json = await res.json();
+      const aberta = (json.indicacoes || []).some(
+        (i: any) => i.status === 'PENDENTE' || i.status === 'CONVERTIDA',
+      );
+      setIndicacaoAberta(aberta);
+    } catch {
+      /* silencioso */
+    }
+  }
+  useEffect(() => {
+    carregarIndicacao();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codigoCliente, lojaCliente]);
 
   // Filtrar ações desse cliente do contexto global
@@ -260,6 +285,19 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
           </div>
           
           <div className="flex items-center gap-2 relative z-10">
+            {/* Botão Indicar Treinamento (handoff p/ a Paola) */}
+            <button
+              onClick={() => setIndicarModal(true)}
+              disabled={indicacaoAberta}
+              title={indicacaoAberta ? 'Já existe uma indicação em aberto para este cliente' : 'Indicar este cliente para treinamento'}
+              className={`px-3 py-2 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-all border ${
+                indicacaoAberta
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300 cursor-default'
+                  : 'bg-sky-500/10 hover:bg-sky-500/20 border-sky-500/30 text-sky-300'
+              }`}
+            >
+              <GraduationCap size={14} /> {indicacaoAberta ? 'Indicado' : 'Indicar Treinamento'}
+            </button>
             {/* Botão Nova Ação */}
             <button
               onClick={() => setCriarAcaoModal(true)}
@@ -640,6 +678,15 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
           acao={concluirAcao}
           onClose={() => setConcluirAcao(null)}
           onSave={refreshAcoes}
+        />
+      )}
+      {indicarModal && (
+        <IndicarTreinamentoModal
+          clienteCodigo={codigoCliente}
+          clienteLoja={lojaCliente}
+          clienteNome={cliente.NOME_CLIENTE}
+          onClose={() => setIndicarModal(false)}
+          onSave={carregarIndicacao}
         />
       )}
     </div>
