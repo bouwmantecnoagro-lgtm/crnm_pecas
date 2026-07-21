@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 
-const VALID_ROLES = ['ADMIN', 'USER', 'PENDING'] as const;
+const VALID_ROLES = ['ADMIN', 'USER', 'PENDING', 'COORDENADOR'] as const;
 type Role = (typeof VALID_ROLES)[number];
 
 export async function POST(
@@ -15,7 +15,7 @@ export async function POST(
 
   if (!role || !VALID_ROLES.includes(role)) {
     return NextResponse.json(
-      { error: 'Role inválida. Use ADMIN, USER ou PENDING.' },
+      { error: 'Role inválida. Use ADMIN, USER, PENDING ou COORDENADOR.' },
       { status: 400 },
     );
   }

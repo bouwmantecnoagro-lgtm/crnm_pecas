@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Zap, Clock, CheckCircle2, XCircle, RotateCcw, Filter, Plus, BarChart3, AlertTriangle, TrendingUp, Users, Loader2, Calendar, CalendarClock, CalendarOff, Search } from 'lucide-react';
+import { Zap, Clock, CheckCircle2, XCircle, RotateCcw, Filter, Plus, BarChart3, AlertTriangle, TrendingUp, Users, Loader2, Calendar, Search } from 'lucide-react';
 import AcaoCard from '@/components/AcaoCard';
 import { getCategoriaAcao, CATEGORIAS_ACAO } from '@/lib/acao';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
@@ -88,19 +88,19 @@ export default function PainelAcoes() {
     }
   });
 
-  // AGENDA por data: ações ativas (já respeitando os filtros) agrupadas pela janela de vencimento.
+  // AGENDA por data: ações ativas (já respeitando os filtros) em 3 grupos que se
+  // recalculam sozinhos conforme o dia avança: atrasados / hoje / futuros.
   const acoesAgenda = acoesParaKanban.filter((a: any) => ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'].includes(a.status));
   const hojeMs = hoje.getTime();
-  const agendaGrupos: Record<string, any[]> = { atrasadas: [], hoje: [], amanha: [], semana: [], depois: [], semData: [] };
+  const agendaGrupos: Record<string, any[]> = { atrasadas: [], hoje: [], futuras: [] };
   for (const a of acoesAgenda) {
-    if (!a.data_vencimento) { agendaGrupos.semData.push(a); continue; }
+    // Ações sem data caem em "Futuras" (ainda não agendadas para um dia específico).
+    if (!a.data_vencimento) { agendaGrupos.futuras.push(a); continue; }
     const d = new Date(a.data_vencimento + 'T00:00:00'); d.setHours(0, 0, 0, 0);
     const diff = Math.round((d.getTime() - hojeMs) / 86400000);
     if (diff < 0) agendaGrupos.atrasadas.push(a);
     else if (diff === 0) agendaGrupos.hoje.push(a);
-    else if (diff === 1) agendaGrupos.amanha.push(a);
-    else if (diff <= 7) agendaGrupos.semana.push(a);
-    else agendaGrupos.depois.push(a);
+    else agendaGrupos.futuras.push(a);
   }
   Object.values(agendaGrupos).forEach(arr => arr.sort((a, b) => {
     const da = a.data_vencimento ? new Date(a.data_vencimento + 'T00:00:00').getTime() : Infinity;
@@ -108,12 +108,9 @@ export default function PainelAcoes() {
     return da - db;
   }));
   const agendaSecoes = [
-    { key: 'atrasadas', titulo: 'Atrasadas', cor: 'text-red-400', icon: <AlertTriangle size={14} /> },
-    { key: 'hoje', titulo: 'Hoje', cor: 'text-emerald-400', icon: <Clock size={14} /> },
-    { key: 'amanha', titulo: 'Amanhã', cor: 'text-sky-400', icon: <CalendarClock size={14} /> },
-    { key: 'semana', titulo: 'Esta semana', cor: 'text-gray-300', icon: <Calendar size={14} /> },
-    { key: 'depois', titulo: 'Depois', cor: 'text-gray-400', icon: <Calendar size={14} /> },
-    { key: 'semData', titulo: 'Sem data', cor: 'text-gray-500', icon: <CalendarOff size={14} /> },
+    { key: 'atrasadas', titulo: 'Atrasados', cor: 'text-red-400', icon: <AlertTriangle size={14} /> },
+    { key: 'hoje', titulo: 'Ações do Dia', cor: 'text-emerald-400', icon: <Clock size={14} /> },
+    { key: 'futuras', titulo: 'Ações Futuras', cor: 'text-sky-400', icon: <Calendar size={14} /> },
   ];
 
   // Ranking de vendedores por ações
@@ -401,21 +398,6 @@ export default function PainelAcoes() {
           )}
         </div>
       )}
-
-      {/* RODAPÉ INFORMATIVO */}
-      <div className="shrink-0 mt-4 p-5 glass-panel border border-violet-500/20 bg-[#ffffff02] rounded-xl flex items-start gap-4">
-        <div className="w-10 h-10 rounded-full bg-violet-500/10 border border-violet-500/30 flex items-center justify-center shrink-0">
-          <Zap size={18} className="text-violet-400" />
-        </div>
-        <div>
-          <h4 className="text-sm font-bold text-white mb-2">Como funcionam as Ações Automáticas?</h4>
-          <p className="text-sm text-gray-400 leading-relaxed">
-            O CRM Bouwman analisa sua carteira todo dia e gera tarefas automaticamente para os consultores com base em 2 regras:<br/>
-            <strong className="text-gray-300">1. Prevenção de Evasão (Churn):</strong> Se um cliente ativo ficar <strong>mais de 120 dias</strong> sem efetuar compras, uma ação de <em>Resgate</em> será criada.<br/>
-            <strong className="text-gray-300">2. Acompanhamento Comercial (Follow-up):</strong> Orçamentos quentes que chegarem a <strong>15 dias</strong> sem fechamento entrarão automaticamente para o funil de recontato. 
-          </p>
-        </div>
-      </div>
 
       {/* Scrollbar style */}
       <style dangerouslySetInnerHTML={{__html: `

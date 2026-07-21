@@ -1,9 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Check, X, Shield, User as UserIcon, Clock, Users as UsersIcon, Search, UserPlus, Trash2 } from 'lucide-react';
+import { Check, X, Shield, User as UserIcon, Clock, Users as UsersIcon, Search, UserPlus, Trash2, Eye } from 'lucide-react';
 
-type Role = 'ADMIN' | 'USER' | 'PENDING';
+type Role = 'ADMIN' | 'USER' | 'PENDING' | 'COORDENADOR';
 
 type UserRow = {
   id: string;
@@ -23,12 +23,14 @@ const ROLE_LABELS: Record<Role, string> = {
   ADMIN: 'Administrador',
   USER: 'Usuário',
   PENDING: 'Pendente',
+  COORDENADOR: 'Coordenador',
 };
 
 const ROLE_STYLES: Record<Role, string> = {
   ADMIN: 'bg-violet-500/15 text-violet-300 border-violet-500/30',
   USER: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
   PENDING: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  COORDENADOR: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
 };
 
 export default function UsersTable({
@@ -120,11 +122,12 @@ export default function UsersTable({
                       {u.role === 'ADMIN' && <Shield size={12} />}
                       {u.role === 'USER' && <UserIcon size={12} />}
                       {u.role === 'PENDING' && <Clock size={12} />}
+                      {u.role === 'COORDENADOR' && <Eye size={12} />}
                       {ROLE_LABELS[u.role]}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {u.role === 'ADMIN' ? (
+                    {u.role === 'ADMIN' || u.role === 'COORDENADOR' ? (
                       <span className="text-xs text-gray-500 italic">vê todos</span>
                     ) : cods.length === 0 ? (
                       <span className="text-xs text-amber-400">nenhum (não vê dados)</span>
@@ -184,6 +187,14 @@ export default function UsersTable({
                       {!isSelf && u.role === 'USER' && (
                         <>
                           <ActionButton
+                            onClick={() => changeRole(u.id, 'COORDENADOR')}
+                            disabled={loading}
+                            variant="coordenador"
+                            icon={<Eye size={14} />}
+                          >
+                            Tornar Coordenador
+                          </ActionButton>
+                          <ActionButton
                             onClick={() => changeRole(u.id, 'ADMIN')}
                             disabled={loading}
                             variant="promote"
@@ -198,6 +209,26 @@ export default function UsersTable({
                             icon={<X size={14} />}
                           >
                             Suspender
+                          </ActionButton>
+                        </>
+                      )}
+                      {!isSelf && u.role === 'COORDENADOR' && (
+                        <>
+                          <ActionButton
+                            onClick={() => changeRole(u.id, 'USER')}
+                            disabled={loading}
+                            variant="demote"
+                            icon={<UserIcon size={14} />}
+                          >
+                            Rebaixar p/ Usuário
+                          </ActionButton>
+                          <ActionButton
+                            onClick={() => changeRole(u.id, 'ADMIN')}
+                            disabled={loading}
+                            variant="promote"
+                            icon={<Shield size={14} />}
+                          >
+                            Tornar Admin
                           </ActionButton>
                         </>
                       )}
@@ -833,7 +864,7 @@ function ActionButton({
 }: {
   onClick: () => void;
   disabled?: boolean;
-  variant: 'approve' | 'promote' | 'suspend' | 'demote' | 'vendedores';
+  variant: 'approve' | 'promote' | 'suspend' | 'demote' | 'vendedores' | 'coordenador';
   icon: React.ReactNode;
   children: React.ReactNode;
 }) {
@@ -843,6 +874,7 @@ function ActionButton({
     suspend: 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25',
     demote: 'bg-slate-500/15 text-slate-300 border-slate-500/30 hover:bg-slate-500/25',
     vendedores: 'bg-sky-500/15 text-sky-300 border-sky-500/30 hover:bg-sky-500/25',
+    coordenador: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25',
   };
   return (
     <button

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Zap, Phone, MessageCircle, Mail, MapPin, FileText, Package, HelpCircle, Calendar, User, AlertTriangle } from 'lucide-react';
 import { getCategoriaAcao } from '@/lib/acao';
+import { createClient } from '@/lib/supabase/client';
 
 const TIPOS_ACAO = [
   { value: 'LIGAR', label: 'Ligar', icon: <Phone size={14} />, color: 'text-emerald-400' },
@@ -55,7 +56,33 @@ export default function CriarAcaoModal({
     return d.toISOString().split('T')[0];
   });
   const [saving, setSaving] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
   const cat = getCategoriaAcao({ tipo, origem: origemTela });
+
+  // Pré-seleciona o vendedor logado. Sem isto, o vendedor (não-admin) precisa
+  // lembrar de se escolher no dropdown — se esquecer, a API rejeita (vendedor
+  // obrigatório) e a ação não é salva. Admin continua escolhendo manualmente.
+  useEffect(() => {
+    (async () => {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) return;
+        const { data } = await supabase
+          .from('profiles')
+          .select('role, cod_vendedor')
+          .eq('id', user.id)
+          .single();
+        // Admin e Coordenador escolhem o vendedor manualmente (agem por qualquer um).
+        if (data?.role === 'ADMIN' || data?.role === 'COORDENADOR') return;
+        const cods = (data?.cod_vendedor as string[] | null) ?? [];
+        const match = cods.find(c => vendedores.some(v => v.codigo === c)) ?? cods[0];
+        if (match) setVendedorSel(prev => prev || match);
+      } catch {
+        // Sem pré-seleção: o usuário ainda pode escolher manualmente.
+      }
+    })();
+  }, [vendedores]);
 
   // Auto-gerar título quando tipo muda
   const gerarTitulo = (t: string) => {
@@ -86,6 +113,7 @@ export default function CriarAcaoModal({
   const handleSalvar = async () => {
     if (!titulo.trim()) return;
     setSaving(true);
+    setErro(null);
 
     const vendedorObj = vendedores.find(v => v.codigo === vendedorSel);
 
@@ -110,11 +138,15 @@ export default function CriarAcaoModal({
         }),
       });
 
-      if (!res.ok) throw new Error('Erro ao salvar');
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || 'Não foi possível salvar a ação. Tente novamente.');
+      }
       onSave();
       onClose();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao criar ação:', err);
+      setErro(err?.message || 'Não foi possível salvar a ação. Tente novamente.');
     } finally {
       setSaving(false);
     }
@@ -258,7 +290,12 @@ export default function CriarAcaoModal({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-white/10 bg-white/[0.01] flex justify-end gap-3">
+        <div className="p-4 border-t border-white/10 bg-white/[0.01] flex items-center justify-end gap-3">
+          {erro && (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-red-400 mr-auto">
+              <AlertTriangle size={14} /> {erro}
+            </p>
+          )}
           <button onClick={onClose} className="px-5 py-2 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
             Cancelar
           </button>

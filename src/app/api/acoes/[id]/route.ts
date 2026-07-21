@@ -6,7 +6,7 @@ import { registrarAtividade } from '@/lib/atividade';
 export const dynamic = 'force-dynamic';
 
 async function getUserScope(userId: string): Promise<{
-  isAdmin: boolean;
+  seeAll: boolean;
   codVendedores: string[];
 }> {
   const admin = createAdminClient();
@@ -16,7 +16,8 @@ async function getUserScope(userId: string): Promise<{
     .eq('id', userId)
     .single();
   return {
-    isAdmin: data?.role === 'ADMIN',
+    // ADMIN e COORDENADOR agem sobre ações de qualquer vendedor; USER só do seu escopo.
+    seeAll: data?.role === 'ADMIN' || data?.role === 'COORDENADOR',
     codVendedores: (data?.cod_vendedor as string[] | null) ?? [],
   };
 }
@@ -24,7 +25,7 @@ async function getUserScope(userId: string): Promise<{
 // Confere que a ação pertence ao escopo do user. Retorna a ação ou null.
 async function ensureScope(
   acaoId: string,
-  scope: { isAdmin: boolean; codVendedores: string[] },
+  scope: { seeAll: boolean; codVendedores: string[] },
 ) {
   const admin = createAdminClient();
   const { data: acao } = await admin
@@ -33,7 +34,7 @@ async function ensureScope(
     .eq('id', acaoId)
     .single();
   if (!acao) return { acao: null, allowed: false };
-  if (scope.isAdmin) return { acao, allowed: true };
+  if (scope.seeAll) return { acao, allowed: true };
   const allowed =
     !!acao.vendedor_responsavel &&
     scope.codVendedores.includes(acao.vendedor_responsavel);
@@ -72,8 +73,8 @@ export async function PATCH(
     if (body.observacoes !== undefined) updates.observacoes = body.observacoes;
     if (body.prioridade) updates.prioridade = body.prioridade;
     if (body.vendedor_responsavel) {
-      // Reassignar para outro vendedor: só admin pode, ou se o destino também está no escopo
-      if (!scope.isAdmin && !scope.codVendedores.includes(body.vendedor_responsavel)) {
+      // Reassignar para outro vendedor: admin/coordenador podem, ou se o destino está no escopo
+      if (!scope.seeAll && !scope.codVendedores.includes(body.vendedor_responsavel)) {
         return NextResponse.json(
           { error: 'Você não pode reatribuir para este vendedor.' },
           { status: 403 },
