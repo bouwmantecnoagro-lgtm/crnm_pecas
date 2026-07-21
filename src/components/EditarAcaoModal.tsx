@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { X, Edit2, Phone, MessageCircle, Mail, MapPin, FileText, Package, HelpCircle, Calendar, User, Activity } from 'lucide-react';
+import { X, Edit2, Phone, MessageCircle, Mail, MapPin, FileText, Package, HelpCircle, Calendar, User, Activity, AlertTriangle } from 'lucide-react';
 
 const TIPOS_ACAO = [
   { value: 'LIGAR', label: 'Ligar', icon: <Phone size={14} />, color: 'text-emerald-400' },
@@ -48,10 +48,12 @@ export default function EditarAcaoModal({
   const [descricao, setDescricao] = useState(acao.descricao || '');
   const [dataVencimento, setDataVencimento] = useState(acao.data_vencimento || '');
   const [saving, setSaving] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
 
   const handleSalvar = async () => {
     if (!titulo.trim()) return;
     setSaving(true);
+    setErro(null);
 
     const vendedorObj = vendedores.find(v => v.codigo === vendedorSel);
 
@@ -71,11 +73,15 @@ export default function EditarAcaoModal({
         }),
       });
 
-      if (!res.ok) throw new Error('Erro ao salvar');
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || 'Não foi possível salvar as alterações. Tente novamente.');
+      }
       onSave();
       onClose();
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao editar ação:', err);
+      setErro(err?.message || 'Não foi possível salvar as alterações. Tente novamente.');
     } finally {
       setSaving(false);
     }
@@ -93,7 +99,7 @@ export default function EditarAcaoModal({
             </div>
             <div>
               <h2 className="text-lg font-bold text-white">Editar Ação</h2>
-              <p className="text-xs text-gray-400">{acao.nome_cliente || 'Ação independente'}</p>
+              <p className="text-xs text-gray-400">{acao.nome_cliente || 'Ação independente'}{acao.filial_cliente ? ` · Filial ${acao.filial_cliente}` : ''}</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-gray-400 hover:text-white hover:bg-white/10 rounded-full transition-colors">
@@ -225,7 +231,12 @@ export default function EditarAcaoModal({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-white/10 bg-white/[0.01] flex justify-end gap-3">
+        <div className="p-4 border-t border-white/10 bg-white/[0.01] flex items-center justify-end gap-3">
+          {erro && (
+            <p className="flex items-center gap-1.5 text-xs font-medium text-red-400 mr-auto">
+              <AlertTriangle size={14} /> {erro}
+            </p>
+          )}
           <button onClick={onClose} className="px-5 py-2 text-sm font-medium text-gray-400 hover:text-white hover:bg-white/5 rounded-lg transition-colors">
             Cancelar
           </button>

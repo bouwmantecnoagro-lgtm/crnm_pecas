@@ -284,6 +284,7 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
                 )}
               </div>
               <p className="text-xs text-gray-400 flex flex-wrap items-center gap-x-3">
+                {cliente.FILIAL && <span>Filial: <strong className="text-gray-300 font-mono">{cliente.FILIAL}</strong></span>}
                 <span>Cod: <strong className="text-gray-300 font-mono">{cliente.CODIGO_CLIENTE}</strong> Lj: {cliente.LOJA_CLIENTE}</span>
                 <span>CNPJ/CPF: {cliente.CNPJ_CPF}</span>
               </p>

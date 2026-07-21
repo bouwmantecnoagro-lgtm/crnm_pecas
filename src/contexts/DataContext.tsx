@@ -39,7 +39,9 @@ const DataContext = createContext<DataContextProps>({
 // v12: a view crm_recencia_grupo quebrava no select completo (DATA_ULT_COMPRA em formato
 //      .NET "/Date(...)/" estourava o cast ::date) → API caía no fallback e a consolidação
 //      nunca aplicava. View corrigida; bump invalida o cache que guardou o dia cru.
-const CACHE_VERSION = 12;
+// v13: ações passaram a vir com filial_cliente (empresa 01/05/10/15 do cadastro) + limpeza
+//      dos resgates automáticos duplicados por grupo no banco.
+const CACHE_VERSION = 13;
 const CACHE_TTL_MS = 1000 * 60 * 60; // 1 hora
 
 function cacheKeys(userId: string) {
@@ -82,6 +84,24 @@ function readCache(userId: string): { cli: any[]; orc: any[]; maq: any[]; acoesD
   }
 }
 
+// Atualiza só as ações dentro do cache já gravado, sem reescrever o timestamp
+// (preserva o TTL de clientes/orçamentos). Usado após criar/editar/concluir uma
+// ação — senão o refresh atualiza a tela mas o cache fica velho e a ação "some"
+// no próximo carregamento da página.
+function patchCacheAcoes(userId: string, acoesData: any[]) {
+  if (typeof window === 'undefined') return;
+  try {
+    const { data: dataKey } = cacheKeys(userId);
+    const cacheStr = localStorage.getItem(dataKey);
+    if (!cacheStr) return; // sem cache ainda — a carga completa cuidará disso
+    const obj = JSON.parse(cacheStr);
+    obj.acoesData = acoesData;
+    localStorage.setItem(dataKey, JSON.stringify(obj));
+  } catch {
+    // ignora erro de storage
+  }
+}
+
 function writeCache(userId: string, data: { cli: any[]; orc: any[]; maq: any[]; acoesData: any[] }) {
   if (typeof window === 'undefined') return;
   try {
@@ -109,16 +129,20 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [loadingOrcamentos, setLoadingOrcamentos] = useState(true);
   const [ultimaSync, setUltimaSync] = useState<string>('');
+  const [userId, setUserId] = useState<string | null>(null);
 
   const fetchAcoes = useCallback(async () => {
     try {
       const res = await fetch('/api/acoes');
       const data = await res.json();
-      if (Array.isArray(data)) setAcoes(data);
+      if (Array.isArray(data)) {
+        setAcoes(data);
+        if (userId) patchCacheAcoes(userId, data);
+      }
     } catch (err) {
       console.error('Erro ao carregar ações:', err);
     }
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     let isMounted = true;
@@ -158,6 +182,7 @@ export function DataProvider({ children }: { children: React.ReactNode }) {
           if (isMounted) { setLoading(false); setLoadingOrcamentos(false); }
           return;
         }
+        if (isMounted) setUserId(user.id);
 
         // Registra acesso (1x por sessão de browser) — fiscal de adoção.
         try {

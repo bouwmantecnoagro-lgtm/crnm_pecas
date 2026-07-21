@@ -5,12 +5,12 @@ import { registrarAtividade } from '@/lib/atividade';
 
 export const dynamic = 'force-dynamic';
 
-// Retorna { isAdmin, codVendedores } do user autenticado.
+// Retorna { seeAll, codVendedores } do user autenticado.
 // Usa o admin client porque RLS de profiles bloqueia leitura do próprio profile
 // se você não passar pelas helpers — e a função SECURITY DEFINER é mais barata
 // no SQL. Aqui no node lemos direto.
 async function getUserScope(userId: string): Promise<{
-  isAdmin: boolean;
+  seeAll: boolean;
   codVendedores: string[];
 }> {
   const admin = createAdminClient();
@@ -20,7 +20,8 @@ async function getUserScope(userId: string): Promise<{
     .eq('id', userId)
     .single();
   return {
-    isAdmin: data?.role === 'ADMIN',
+    // ADMIN e COORDENADOR agem sobre ações de qualquer vendedor; USER só do seu escopo.
+    seeAll: data?.role === 'ADMIN' || data?.role === 'COORDENADOR',
     codVendedores: (data?.cod_vendedor as string[] | null) ?? [],
   };
 }
@@ -92,7 +93,7 @@ export async function POST(request: Request) {
     const vendedorResp = body.vendedor_responsavel || null;
 
     const scope = await getUserScope(user.id);
-    if (!scope.isAdmin) {
+    if (!scope.seeAll) {
       if (!vendedorResp) {
         return NextResponse.json(
           { error: 'Vendedor responsável é obrigatório.' },
@@ -108,6 +109,20 @@ export async function POST(request: Request) {
     }
 
     const admin = createAdminClient();
+
+    // Filial/empresa do cadastro (01/05/10/15), quando o par código+loja resolve sem ambiguidade
+    let filialCliente: string | null = null;
+    if (body.codigo_cliente && body.loja_cliente) {
+      const { data: cads } = await admin
+        .from('crm_clientes')
+        .select('FILIAL')
+        .eq('CODIGO_CLIENTE', body.codigo_cliente)
+        .eq('LOJA_CLIENTE', body.loja_cliente)
+        .limit(10);
+      const filiais = [...new Set((cads || []).map((c: any) => c.FILIAL).filter(Boolean))];
+      if (filiais.length === 1) filialCliente = filiais[0];
+    }
+
     const acao = {
       tipo: body.tipo || 'OUTRO',
       titulo: body.titulo,
@@ -117,6 +132,7 @@ export async function POST(request: Request) {
       codigo_cliente: body.codigo_cliente || null,
       loja_cliente: body.loja_cliente || null,
       nome_cliente: body.nome_cliente || null,
+      filial_cliente: filialCliente,
       numero_orcamento: body.numero_orcamento || null,
       vendedor_responsavel: vendedorResp,
       nome_vendedor: body.nome_vendedor || null,

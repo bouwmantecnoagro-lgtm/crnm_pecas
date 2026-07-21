@@ -84,6 +84,7 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
             title={acao.codigo_cliente && onClickCliente ? "Ver detalhes do cliente" : ""}
           >
             {acao.nome_cliente || 'S/ cliente'}
+            {acao.filial_cliente && <span className="text-gray-600"> · Fil {acao.filial_cliente}</span>}
             {acao.numero_orcamento && (
               <span
                 onClick={onClickOrcamento ? (e) => { e.stopPropagation(); onClickOrcamento(String(acao.numero_orcamento)); } : undefined}
@@ -134,6 +135,11 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
           <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide border ${cat.chip}`}>
             {cat.label}
           </span>
+          {acao.filial_cliente && (
+            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-white/5 text-gray-400 border border-white/10" title={`Cadastro da empresa/filial ${acao.filial_cliente}`}>
+              🏢 Filial {acao.filial_cliente}
+            </span>
+          )}
         </div>
         <span className={`text-[11px] font-bold px-2 py-0.5 rounded-sm ${
           vencida ? 'bg-red-500/20 text-red-400' : venceHoje ? 'bg-amber-500/20 text-amber-400' : 'bg-white/5 text-gray-400'

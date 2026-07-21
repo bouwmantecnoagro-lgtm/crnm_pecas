@@ -22,7 +22,6 @@ export async function GET(request: Request) {
     let acoesCriadas = 0;
     
     // Conjuntos para evitar duplicadas durante a MESMA execução do robô
-    const clientesProcessados = new Set();
     const orcamentosProcessados = new Set();
     const orcamentosReativacao = new Set();
 
@@ -60,12 +59,69 @@ export async function GET(request: Request) {
       while (true) {
         const { data, error: errClientes } = await supabase
           .from('crm_clientes')
-          .select('CODIGO_CLIENTE, LOJA_CLIENTE, NOME_CLIENTE, VENDEDOR_RESP, NOME_VENDEDOR_RESP, DIAS_SEM_COMPRA, CNPJ_RAIZ')
+          .select('FILIAL, CODIGO_CLIENTE, LOJA_CLIENTE, NOME_CLIENTE, VENDEDOR_RESP, NOME_VENDEDOR_RESP, DIAS_SEM_COMPRA, CNPJ_RAIZ')
           .eq('STATUS_BASE', 'ATIVO')
           .gt('DIAS_SEM_COMPRA', 120)
           .range(from, from + PAGE - 1);
         if (errClientes) { console.error("Erro ao buscar clientes:", errClientes); break; }
         clientes.push(...(data || []));
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+      }
+    }
+
+    // Mapa cadastro → grupo (CNPJ_RAIZ) de TODA a base: as ações pendentes/concluídas podem
+    // referenciar um cadastro-irmão do mesmo CPF/CNPJ (outra empresa 01/05/10/15) que não
+    // está na lista de elegíveis acima — sem o mapa, o dedup por grupo ficaria cego a eles.
+    const grupoDoCadastro = new Map<string, string>();
+    {
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('crm_clientes')
+          .select('CODIGO_CLIENTE, LOJA_CLIENTE, CNPJ_RAIZ')
+          .range(from, from + PAGE - 1);
+        if (error) { console.error("Erro ao mapear grupos de clientes:", error); break; }
+        for (const c of data || []) {
+          const key = `${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`;
+          grupoDoCadastro.set(key, c.CNPJ_RAIZ || key);
+        }
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+      }
+    }
+    const grupoDe = (codigo: any, loja: any) => {
+      const key = `${codigo}_${loja}`;
+      return grupoDoCadastro.get(key) || key;
+    };
+
+    // Grupos que já têm resgate (LIGAR) pendente em QUALQUER cadastro — antes o dedup era
+    // por cadastro (código+loja) e o mesmo cliente com 2 cadastros ganhava 2 ações.
+    const pendenteLigarGrupo = new Set<string>();
+    for (const a of acoesPendentes) {
+      if (a.tipo === 'LIGAR') pendenteLigarGrupo.add(grupoDe(a.codigo_cliente, a.loja_cliente));
+    }
+
+    // Cooldown: se um resgate do grupo foi CONCLUÍDO/CANCELADO há menos de 90 dias, não
+    // recria — antes o robô recriava no dia seguinte ao desfecho ("ligar quase todo dia").
+    const COOLDOWN_RESGATE_DIAS = 90;
+    const cooldownGrupo = new Set<string>();
+    {
+      const cutoff = new Date(Date.now() - COOLDOWN_RESGATE_DIAS * 24 * 60 * 60 * 1000).toISOString();
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('crm_acoes')
+          .select('codigo_cliente, loja_cliente')
+          .eq('origem', 'SISTEMA_AUTO')
+          .eq('tipo', 'LIGAR')
+          .in('status', ['CONCLUIDA', 'CANCELADA'])
+          .or(`data_conclusao.gte.${cutoff},updated_at.gte.${cutoff}`)
+          .range(from, from + PAGE - 1);
+        if (error) { console.error("Erro ao buscar resgates com desfecho recente:", error); break; }
+        for (const a of data || []) cooldownGrupo.add(grupoDe(a.codigo_cliente, a.loja_cliente));
         if (!data || data.length < PAGE) break;
         from += PAGE;
       }
@@ -84,41 +140,47 @@ export async function GET(request: Request) {
       }
     }
     {
+      // Agrupa elegíveis por CNPJ_RAIZ: UMA ação de resgate por cliente-grupo,
+      // não uma por cadastro/empresa (era o que duplicava p/ quem existe na 01 e na 10).
+      const elegiveisPorGrupo = new Map<string, any[]>();
       for (const c of clientes) {
-        // dias efetivo = menor entre o cadastro local e a compra mais recente do grupo
-        const diasGrupo = c.CNPJ_RAIZ ? recenciaGrupo.get(c.CNPJ_RAIZ) : undefined;
-        const diasEfetivo = (diasGrupo != null && diasGrupo < c.DIAS_SEM_COMPRA) ? diasGrupo : c.DIAS_SEM_COMPRA;
-        if (diasEfetivo > 120) {
-          const cliId = `${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`;
-          if (clientesProcessados.has(cliId)) continue;
+        const g = grupoDe(c.CODIGO_CLIENTE, c.LOJA_CLIENTE);
+        if (!elegiveisPorGrupo.has(g)) elegiveisPorGrupo.set(g, []);
+        elegiveisPorGrupo.get(g)!.push(c);
+      }
 
-          // Verifica se já existe uma ação de resgate (LIGAR) para ele
-          const jaExiste = acoesPendentes?.some(a => 
-            String(a.codigo_cliente) === String(c.CODIGO_CLIENTE) && 
-            String(a.loja_cliente) === String(c.LOJA_CLIENTE) && 
-            a.tipo === 'LIGAR'
-          );
+      for (const [grupo, cadastros] of elegiveisPorGrupo) {
+        // dias efetivo = menor entre os cadastros elegíveis e a compra mais recente do grupo
+        const menorLocal = Math.min(...cadastros.map((c: any) => c.DIAS_SEM_COMPRA));
+        const diasGrupo = recenciaGrupo.get(grupo);
+        const diasEfetivo = (diasGrupo != null && diasGrupo < menorLocal) ? diasGrupo : menorLocal;
+        if (diasEfetivo <= 120) continue;
+        if (pendenteLigarGrupo.has(grupo)) continue;
+        if (cooldownGrupo.has(grupo)) continue;
 
-          if (!jaExiste) {
-            clientesProcessados.add(cliId);
-            const payload = {
-              titulo: `Resgate de Inatividade (${diasEfetivo} dias)`,
-              tipo: 'LIGAR',
-              prioridade: diasEfetivo > 90 ? 'URGENTE' : 'ALTA',
-              descricao: `Cliente ativo sem fluxo financeiro há ${diasEfetivo} dias (considerando todas as filiais do grupo).\nReative o relacionamento e identifique o motivo do afastamento.`,
-              codigo_cliente: c.CODIGO_CLIENTE,
-              loja_cliente: c.LOJA_CLIENTE,
-              nome_cliente: c.NOME_CLIENTE,
-              vendedor_responsavel: c.VENDEDOR_RESP,
-              nome_vendedor: c.NOME_VENDEDOR_RESP,
-              origem: 'SISTEMA_AUTO',
-              criado_por: 'SISTEMA',
-              data_vencimento: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // +2 dias
-            };
+        // Representante do grupo: o cadastro com a atividade mais recente
+        const rep = cadastros.reduce((a: any, b: any) => (b.DIAS_SEM_COMPRA < a.DIAS_SEM_COMPRA ? b : a));
 
-            const { error } = await supabase.from('crm_acoes').insert(payload);
-            if (!error) acoesCriadas++;
-          }
+        const payload = {
+          titulo: `Resgate de Inatividade (${diasEfetivo} dias)`,
+          tipo: 'LIGAR',
+          prioridade: diasEfetivo > 90 ? 'URGENTE' : 'ALTA',
+          descricao: `Cliente ativo sem fluxo financeiro há ${diasEfetivo} dias (considerando todas as filiais do grupo).\nReative o relacionamento e identifique o motivo do afastamento.`,
+          codigo_cliente: rep.CODIGO_CLIENTE,
+          loja_cliente: rep.LOJA_CLIENTE,
+          nome_cliente: rep.NOME_CLIENTE,
+          filial_cliente: rep.FILIAL || null,
+          vendedor_responsavel: rep.VENDEDOR_RESP,
+          nome_vendedor: rep.NOME_VENDEDOR_RESP,
+          origem: 'SISTEMA_AUTO',
+          criado_por: 'SISTEMA',
+          data_vencimento: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] // +2 dias
+        };
+
+        const { error } = await supabase.from('crm_acoes').insert(payload);
+        if (!error) {
+          acoesCriadas++;
+          pendenteLigarGrupo.add(grupo);
         }
       }
     }

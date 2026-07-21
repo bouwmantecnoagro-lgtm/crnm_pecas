@@ -136,7 +136,7 @@ export default function ConcluirAcaoModal({ acao, onClose, onSave }: ConcluirAca
             </div>
             <div>
               <p className="text-sm font-medium text-white">{acao.nome_cliente || 'N/A'}</p>
-              <p className="text-[10px] text-gray-500">{acao.tipo} {acao.numero_orcamento ? `• Orç #${acao.numero_orcamento}` : ''}</p>
+              <p className="text-[10px] text-gray-500">{acao.tipo} {acao.filial_cliente ? `• Filial ${acao.filial_cliente}` : ''} {acao.numero_orcamento ? `• Orç #${acao.numero_orcamento}` : ''}</p>
             </div>
           </div>
         </div>
