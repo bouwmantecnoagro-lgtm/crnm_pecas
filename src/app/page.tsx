@@ -15,6 +15,7 @@ import { useData } from '@/contexts/DataContext';
 import { getStatusVivo as getStatusOrc, STATUS_FECHADOS } from '@/lib/orcamento';
 import { buildIndiceVendasInternas } from '@/lib/vendas-internas';
 import { diasEf } from '@/lib/recencia';
+import { chaveCliente } from '@/lib/acao';
 import { DashboardSkeleton } from '@/components/Skeletons';
 
 // Filtro global por intervalo de EMISSÃO do orçamento (data início/fim, 'YYYY-MM-DD').
@@ -131,14 +132,14 @@ export default function Dashboard() {
   // Para ações: filial vem do cliente vinculado (a tabela crm_acoes não tem filial)
   const clienteFilialIdx = useMemo(() => {
     const idx = new Map<string, string>();
-    clientes.forEach((c: any) => idx.set(`${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`, String(c.FILIAL || '')));
+    clientes.forEach((c: any) => idx.set(chaveCliente(c.CODIGO_CLIENTE, c.LOJA_CLIENTE), String(c.FILIAL || '')));
     return idx;
   }, [clientes]);
 
   const acoesFiltradas = useMemo(() => acoes.filter((a: any) => {
     if (fVendedor && String(a.vendedor_responsavel || '') !== fVendedor) return false;
     if (fFilial && a.codigo_cliente) {
-      const fil = clienteFilialIdx.get(`${a.codigo_cliente}_${a.loja_cliente}`);
+      const fil = clienteFilialIdx.get(chaveCliente(a.codigo_cliente, a.loja_cliente));
       if (fil && fil !== fFilial) return false;
     }
     return true;

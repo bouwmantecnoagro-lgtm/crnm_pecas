@@ -8,6 +8,7 @@ import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
 import IndicarTreinamentoModal from '@/components/IndicarTreinamentoModal';
 import { useData } from '@/contexts/DataContext';
 import { diasEf, recenciaDeOutraFilial } from '@/lib/recencia';
+import { chaveCliente } from '@/lib/acao';
 import { Cliente360Skeleton } from '@/components/Skeletons';
 
 function fixEncoding(str: any) {
@@ -111,10 +112,8 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
 
   // Filtrar ações desse cliente do contexto global
   useEffect(() => {
-    const filtradas = acoes.filter((a: any) => 
-      String(a.codigo_cliente) === String(codigoCliente) && 
-      String(a.loja_cliente) === String(lojaCliente)
-    );
+    const chave = chaveCliente(codigoCliente, lojaCliente);
+    const filtradas = acoes.filter((a: any) => chaveCliente(a.codigo_cliente, a.loja_cliente) === chave);
     setAcoesCliente(filtradas);
   }, [acoes, codigoCliente, lojaCliente]);
 

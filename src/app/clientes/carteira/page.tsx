@@ -7,6 +7,7 @@ import Cliente360Modal from '@/components/Cliente360Modal';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
 import { useData } from '@/contexts/DataContext';
 import { diasEf, recenciaDeOutraFilial } from '@/lib/recencia';
+import { chaveCliente } from '@/lib/acao';
 import { KanbanSkeleton } from '@/components/Skeletons';
 
 export default function PipelineCarteira() {
@@ -26,7 +27,10 @@ export default function PipelineCarteira() {
 
   // Contar ações ativas por cliente
   const acoesAtivas = acoes.filter((a: any) => ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'].includes(a.status));
-  const acoesPorCliente = (cod: string, loja: string) => acoesAtivas.filter((a: any) => String(a.codigo_cliente) === String(cod) && String(a.loja_cliente) === String(loja)).length;
+  const acoesPorCliente = (cod: string, loja: string) => {
+    const chave = chaveCliente(cod, loja);
+    return acoesAtivas.filter((a: any) => chaveCliente(a.codigo_cliente, a.loja_cliente) === chave).length;
+  };
 
   // Sugestão de tipo baseado na coluna
   const tipoSugerido = (chave: string) => {

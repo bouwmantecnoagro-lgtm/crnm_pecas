@@ -70,31 +70,90 @@ export async function GET(request: Request) {
       }
     }
 
-    // Mapa cadastro → grupo (CNPJ_RAIZ) de TODA a base: as ações pendentes/concluídas podem
-    // referenciar um cadastro-irmão do mesmo CPF/CNPJ (outra empresa 01/05/10/15) que não
-    // está na lista de elegíveis acima — sem o mapa, o dedup por grupo ficaria cego a eles.
+    // Chave do cadastro normalizada. crm_clientes guarda TEXTO com zeros à esquerda
+    // ('003193', '01') e crm_acoes guarda NÚMERO (3193, 1) — a coluna é inteira e come o
+    // zero no insert. Sem o padStart os dois lados nunca casam: era o que cegava o dedup
+    // e o cooldown abaixo (o robô recriava ~550 resgates por dia desde 21/07).
+    const chaveCadastro = (codigo: any, loja: any) =>
+      `${String(codigo ?? '').trim().padStart(6, '0')}_${String(loja ?? '').trim().padStart(2, '0')}`;
+
+    // Mapa cadastro → grupo (CNPJ_RAIZ) e cadastro → dono atual, de TODA a base: as ações
+    // pendentes/concluídas podem referenciar um cadastro-irmão do mesmo CPF/CNPJ (outra
+    // empresa 01/05/10/15) que não está na lista de elegíveis acima — sem o mapa, o dedup
+    // por grupo ficaria cego a eles.
     const grupoDoCadastro = new Map<string, string>();
+    const donoDoCadastro = new Map<string, { cod: string; nome: string }>();
     {
       let from = 0;
       const PAGE = 1000;
       while (true) {
         const { data, error } = await supabase
           .from('crm_clientes')
-          .select('CODIGO_CLIENTE, LOJA_CLIENTE, CNPJ_RAIZ')
+          .select('CODIGO_CLIENTE, LOJA_CLIENTE, CNPJ_RAIZ, VENDEDOR_RESP, NOME_VENDEDOR_RESP')
           .range(from, from + PAGE - 1);
         if (error) { console.error("Erro ao mapear grupos de clientes:", error); break; }
         for (const c of data || []) {
-          const key = `${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`;
+          const key = chaveCadastro(c.CODIGO_CLIENTE, c.LOJA_CLIENTE);
           grupoDoCadastro.set(key, c.CNPJ_RAIZ || key);
+          if (c.VENDEDOR_RESP) {
+            donoDoCadastro.set(key, { cod: String(c.VENDEDOR_RESP).trim(), nome: c.NOME_VENDEDOR_RESP });
+          }
         }
         if (!data || data.length < PAGE) break;
         from += PAGE;
       }
     }
     const grupoDe = (codigo: any, loja: any) => {
-      const key = `${codigo}_${loja}`;
+      const key = chaveCadastro(codigo, loja);
       return grupoDoCadastro.get(key) || key;
     };
+
+    // --- PASSO 0: AÇÕES SEGUEM A CARTEIRA ---
+    // vendedor_responsavel é uma cópia do dono do cliente no instante em que a ação nasce.
+    // Quando a carteira troca de mãos no Protheus o cadastro muda, mas a ação fica no
+    // vendedor antigo — e some do painel do novo, porque o RLS filtra por esse campo.
+    // Realinha antes de gerar qualquer coisa. Só mexe no que está em aberto: ação concluída
+    // é histórico de quem executou e não pode mudar de dono.
+    let acoesReatribuidas = 0;
+    {
+      const abertas: any[] = [];
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('crm_acoes')
+          .select('id, codigo_cliente, loja_cliente, vendedor_responsavel')
+          .in('status', ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'])
+          .range(from, from + PAGE - 1);
+        if (error) { console.error("Erro ao buscar ações abertas:", error); break; }
+        abertas.push(...(data || []));
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+      }
+
+      // Agrupa por vendedor de destino: um update por lote de ids, não um por ação.
+      const porDestino = new Map<string, { cod: string; nome: string; ids: string[] }>();
+      for (const a of abertas) {
+        if (a.codigo_cliente == null) continue;
+        const dono = donoDoCadastro.get(chaveCadastro(a.codigo_cliente, a.loja_cliente));
+        if (!dono) continue;
+        if (dono.cod === String(a.vendedor_responsavel ?? '').trim()) continue;
+        if (!porDestino.has(dono.cod)) porDestino.set(dono.cod, { ...dono, ids: [] });
+        porDestino.get(dono.cod)!.ids.push(a.id);
+      }
+
+      for (const destino of porDestino.values()) {
+        for (let i = 0; i < destino.ids.length; i += 200) {
+          const lote = destino.ids.slice(i, i + 200);
+          const { error } = await supabase
+            .from('crm_acoes')
+            .update({ vendedor_responsavel: destino.cod, nome_vendedor: destino.nome })
+            .in('id', lote);
+          if (error) console.error(`Erro ao reatribuir ações para ${destino.cod}:`, error);
+          else acoesReatribuidas += lote.length;
+        }
+      }
+    }
 
     // Grupos que já têm resgate (LIGAR) pendente em QUALQUER cadastro — antes o dedup era
     // por cadastro (código+loja) e o mesmo cliente com 2 cadastros ganhava 2 ações.
@@ -304,9 +363,9 @@ export async function GET(request: Request) {
       }
     }
 
-    return NextResponse.json({ 
-      success: true, 
-      message: `Processo finalizado. ${acoesCriadas} novas ações automáticas geradas.`
+    return NextResponse.json({
+      success: true,
+      message: `Processo finalizado. ${acoesCriadas} novas ações automáticas geradas, ${acoesReatribuidas} realinhadas com a carteira atual.`
     });
 
   } catch (error: any) {

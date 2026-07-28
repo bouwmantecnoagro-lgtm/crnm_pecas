@@ -3,6 +3,14 @@
 // Centralizado aqui de propósito — quando virar coluna `categoria` no banco (fase 2),
 // basta trocar a lógica desta função, sem mexer nos componentes.
 
+// Chave de vínculo ação ↔ cliente. crm_clientes guarda o código como TEXTO com zeros à
+// esquerda ('003193', loja '01'); crm_acoes.codigo_cliente é coluna INTEIRA e come o zero
+// no insert (3193, loja 1). Comparar os dois crus não casa nunca — era o que deixava o
+// Cliente360 e o contador da carteira sempre em zero. Sempre normalize pelos dois lados.
+export function chaveCliente(codigo: any, loja: any): string {
+  return `${String(codigo ?? '').trim().padStart(6, '0')}_${String(loja ?? '').trim().padStart(2, '0')}`;
+}
+
 export type CategoriaAcaoKey = 'COMERCIAL' | 'RETENCAO' | 'MANUAL';
 
 export interface CategoriaAcao {
