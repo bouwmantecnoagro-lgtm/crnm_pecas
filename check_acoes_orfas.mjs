@@ -35,39 +35,59 @@ const pageAll = async (table, cols, tweak = q => q) => {
 
 const pad = (v, n) => String(v ?? '').trim().padStart(n, '0');
 const chave = (cod, loja) => `${pad(cod, 6)}|${pad(loja, 2)}`;
+const filialDe = (v) => {
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  return (s.length > 2 ? s.slice(0, 2) : s).padStart(2, '0');
+};
 const ABERTAS = ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'];
 
 async function run() {
-  const clientes = await pageAll('crm_clientes', 'CODIGO_CLIENTE, LOJA_CLIENTE, NOME_CLIENTE, VENDEDOR_RESP, NOME_VENDEDOR_RESP');
-  const dono = new Map();
-  for (const c of clientes) dono.set(chave(c.CODIGO_CLIENTE, c.LOJA_CLIENTE), c);
+  const clientes = await pageAll('crm_clientes', 'FILIAL, CODIGO_CLIENTE, LOJA_CLIENTE, NOME_CLIENTE, VENDEDOR_RESP, NOME_VENDEDOR_RESP');
+  const porPar = new Map();
+  for (const c of clientes) {
+    const k = chave(c.CODIGO_CLIENTE, c.LOJA_CLIENTE);
+    const l = porPar.get(k);
+    if (l) l.push(c); else porPar.set(k, [c]);
+  }
 
-  const acoes = await pageAll('crm_acoes', 'id, tipo, status, origem, vendedor_responsavel, nome_vendedor, codigo_cliente, loja_cliente, created_at',
+  // Mesmo critério do app (buildIndiceClientes): par único resolve direto; par repetido
+  // entre filiais só resolve se a ação disser a filial. Na dúvida, não vincula.
+  const cadastroDaAcao = (a) => {
+    if (a.codigo_cliente == null) return null;
+    const cands = porPar.get(chave(a.codigo_cliente, a.loja_cliente));
+    if (!cands?.length) return null;
+    if (cands.length === 1) return cands[0];
+    const f = filialDe(a.filial_cliente);
+    if (!f) return null;
+    return cands.find(c => filialDe(c.FILIAL) === f) || null;
+  };
+
+  const acoes = await pageAll('crm_acoes', 'id, tipo, status, origem, vendedor_responsavel, nome_vendedor, codigo_cliente, loja_cliente, filial_cliente, created_at',
     q => q.in('status', ABERTAS));
 
   // 1) Órfãs: ação aberta cujo vendedor ≠ dono atual do cliente
-  const porPar = new Map();
-  let orfas = 0, semCadastro = 0;
+  const porDivergencia = new Map();
+  let orfas = 0, semCadastro = 0, semCliente = 0;
   for (const a of acoes) {
-    // Ação sem cliente (manual, avulsa): a chave viraria '000000_00' e casaria com o
-    // cadastro-fantasma "CLIENTE A DEFINIR" — apareceria como órfã sem ser.
-    if (a.codigo_cliente == null) continue;
-    const c = dono.get(chave(a.codigo_cliente, a.loja_cliente));
+    if (a.codigo_cliente == null) { semCliente++; continue; }
+    const c = cadastroDaAcao(a);
     if (!c) { semCadastro++; continue; }
     if (String(c.VENDEDOR_RESP || '').trim() !== String(a.vendedor_responsavel || '').trim()) {
       orfas++;
       const k = `${a.vendedor_responsavel} (${a.nome_vendedor}) → ${c.VENDEDOR_RESP} (${c.NOME_VENDEDOR_RESP})`;
-      porPar.set(k, (porPar.get(k) || 0) + 1);
+      porDivergencia.set(k, (porDivergencia.get(k) || 0) + 1);
     }
   }
-  console.log(`=== Ações abertas: ${acoes.length} | órfãs: ${orfas} | sem cadastro casado: ${semCadastro} ===`);
-  [...porPar.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).forEach(([k, v]) => console.log(`  ${k} → ${v}`));
+  console.log(`=== Ações abertas: ${acoes.length} | órfãs: ${orfas} | ambíguas/sem cadastro: ${semCadastro} | sem cliente: ${semCliente} ===`);
+  [...porDivergencia.entries()].sort((a, b) => b[1] - a[1]).slice(0, 15).forEach(([k, v]) => console.log(`  ${k} → ${v}`));
 
   // 2) Duplicação de resgate (LIGAR automático) por cliente
   const ligar = acoes.filter(a => a.tipo === 'LIGAR' && a.origem === 'SISTEMA_AUTO');
   const porCli = new Map();
   for (const a of ligar) {
-    const k = chave(a.codigo_cliente, a.loja_cliente);
+    const c = cadastroDaAcao(a);
+    const k = c ? `${filialDe(c.FILIAL)}_${chave(c.CODIGO_CLIENTE, c.LOJA_CLIENTE)}` : `AMB_${a.id}`;
     porCli.set(k, (porCli.get(k) || 0) + 1);
   }
   console.log(`\n=== Resgates (LIGAR/SISTEMA_AUTO) pendentes: ${ligar.length} para ${porCli.size} clientes | excedente: ${ligar.length - porCli.size} ===`);
