@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { createAdminClient } from '@/lib/supabase/admin';
 import { registrarAtividade } from '@/lib/atividade';
+import { filialDe } from '@/lib/acao';
 
 export const dynamic = 'force-dynamic';
 
@@ -110,16 +111,18 @@ export async function POST(request: Request) {
 
     const admin = createAdminClient();
 
-    // Filial/empresa do cadastro (01/05/10/15), quando o par código+loja resolve sem ambiguidade
-    let filialCliente: string | null = null;
-    if (body.codigo_cliente && body.loja_cliente) {
+    // Filial/empresa do cadastro (01/05/10/15). Quem chama de dentro do Cliente360 já sabe
+    // qual é — e precisa mandar, porque o par código+loja se repete entre as empresas e a
+    // ação sem filial não consegue mais ser ligada de volta ao cliente certo.
+    let filialCliente: string | null = body.filial_cliente ? filialDe(body.filial_cliente) : null;
+    if (!filialCliente && body.codigo_cliente && body.loja_cliente) {
       const { data: cads } = await admin
         .from('crm_clientes')
         .select('FILIAL')
         .eq('CODIGO_CLIENTE', body.codigo_cliente)
         .eq('LOJA_CLIENTE', body.loja_cliente)
         .limit(10);
-      const filiais = [...new Set((cads || []).map((c: any) => c.FILIAL).filter(Boolean))];
+      const filiais = [...new Set((cads || []).map((c: any) => filialDe(c.FILIAL)).filter(Boolean))];
       if (filiais.length === 1) filialCliente = filiais[0];
     }
 

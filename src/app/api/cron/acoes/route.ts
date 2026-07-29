@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { chaveCliente, filialDe } from '@/lib/acao';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -36,7 +37,7 @@ export async function GET(request: Request) {
       while (true) {
         const { data, error: errAcoes } = await supabase
           .from('crm_acoes')
-          .select('codigo_cliente, loja_cliente, numero_orcamento, tipo')
+          .select('codigo_cliente, loja_cliente, filial_cliente, numero_orcamento, tipo')
           .in('status', ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'])
           .eq('origem', 'SISTEMA_AUTO')
           .range(from, from + PAGE - 1);
@@ -70,42 +71,54 @@ export async function GET(request: Request) {
       }
     }
 
-    // Chave do cadastro normalizada. crm_clientes guarda TEXTO com zeros à esquerda
-    // ('003193', '01') e crm_acoes guarda NÚMERO (3193, 1) — a coluna é inteira e come o
-    // zero no insert. Sem o padStart os dois lados nunca casam: era o que cegava o dedup
-    // e o cooldown abaixo (o robô recriava ~550 resgates por dia desde 21/07).
-    const chaveCadastro = (codigo: any, loja: any) =>
-      `${String(codigo ?? '').trim().padStart(6, '0')}_${String(loja ?? '').trim().padStart(2, '0')}`;
-
-    // Mapa cadastro → grupo (CNPJ_RAIZ) e cadastro → dono atual, de TODA a base: as ações
-    // pendentes/concluídas podem referenciar um cadastro-irmão do mesmo CPF/CNPJ (outra
-    // empresa 01/05/10/15) que não está na lista de elegíveis acima — sem o mapa, o dedup
-    // por grupo ficaria cego a eles.
-    const grupoDoCadastro = new Map<string, string>();
-    const donoDoCadastro = new Map<string, { cod: string; nome: string }>();
+    // Cadastro de TODA a base, indexado pelo par (código, loja) normalizado.
+    // Dois detalhes que já morderam aqui:
+    //   1. crm_clientes guarda TEXTO com zeros à esquerda ('003193', '01') e crm_acoes
+    //      guarda NÚMERO (3193, 1) — a coluna é inteira e come o zero no insert. Sem o
+    //      padStart os dois lados nunca casam (era o que cegava o dedup e o cooldown).
+    //   2. O par (código, loja) NÃO é único: repete entre as empresas 01/05/10/15 com
+    //      clientes DIFERENTES (000038/01 é LAERTE na 01 e RODRIGO BAGATINI na 10). São
+    //      414 pares repetidos. Por isso `cadastroDaAcao` exige a filial quando há mais
+    //      de um candidato — e devolve null na dúvida, em vez de chutar o cliente errado.
+    const cadastrosPorPar = new Map<string, any[]>();
     {
       let from = 0;
       const PAGE = 1000;
       while (true) {
         const { data, error } = await supabase
           .from('crm_clientes')
-          .select('CODIGO_CLIENTE, LOJA_CLIENTE, CNPJ_RAIZ, VENDEDOR_RESP, NOME_VENDEDOR_RESP')
+          .select('FILIAL, CODIGO_CLIENTE, LOJA_CLIENTE, CNPJ_RAIZ, VENDEDOR_RESP, NOME_VENDEDOR_RESP')
           .range(from, from + PAGE - 1);
-        if (error) { console.error("Erro ao mapear grupos de clientes:", error); break; }
+        if (error) { console.error("Erro ao mapear cadastros de clientes:", error); break; }
         for (const c of data || []) {
-          const key = chaveCadastro(c.CODIGO_CLIENTE, c.LOJA_CLIENTE);
-          grupoDoCadastro.set(key, c.CNPJ_RAIZ || key);
-          if (c.VENDEDOR_RESP) {
-            donoDoCadastro.set(key, { cod: String(c.VENDEDOR_RESP).trim(), nome: c.NOME_VENDEDOR_RESP });
-          }
+          const key = chaveCliente(c.CODIGO_CLIENTE, c.LOJA_CLIENTE);
+          const lista = cadastrosPorPar.get(key);
+          if (lista) lista.push(c); else cadastrosPorPar.set(key, [c]);
         }
         if (!data || data.length < PAGE) break;
         from += PAGE;
       }
     }
-    const grupoDe = (codigo: any, loja: any) => {
-      const key = chaveCadastro(codigo, loja);
-      return grupoDoCadastro.get(key) || key;
+
+    // Cadastro dono de uma ação, ou null quando o par é ambíguo e a ação não diz a filial.
+    const cadastroDaAcao = (acao: any) => {
+      if (acao?.codigo_cliente == null) return null;
+      const cands = cadastrosPorPar.get(chaveCliente(acao.codigo_cliente, acao.loja_cliente));
+      if (!cands?.length) return null;
+      if (cands.length === 1) return cands[0];
+      const fil = filialDe(acao.filial_cliente);
+      if (!fil) return null;
+      return cands.find((c: any) => filialDe(c.FILIAL) === fil) || null;
+    };
+
+    // Grupo (CNPJ_RAIZ) do cadastro. Quando a ação não resolve para um cadastro, usa uma
+    // chave própria dela — nunca a chave "código_loja" crua, que juntaria no mesmo grupo
+    // clientes distintos de filiais diferentes e faria o dedup apagar a ação do vizinho.
+    const grupoDoCadastro = (c: any) => c.CNPJ_RAIZ || chaveCliente(c.CODIGO_CLIENTE, c.LOJA_CLIENTE);
+    const grupoDaAcao = (acao: any) => {
+      const c = cadastroDaAcao(acao);
+      if (c) return grupoDoCadastro(c);
+      return `AMBIGUO_${chaveCliente(acao?.codigo_cliente, acao?.loja_cliente)}_${filialDe(acao?.filial_cliente) ?? '??'}`;
     };
 
     // --- PASSO 0: AÇÕES SEGUEM A CARTEIRA ---
@@ -122,7 +135,7 @@ export async function GET(request: Request) {
       while (true) {
         const { data, error } = await supabase
           .from('crm_acoes')
-          .select('id, codigo_cliente, loja_cliente, vendedor_responsavel')
+          .select('id, codigo_cliente, loja_cliente, filial_cliente, vendedor_responsavel')
           .in('status', ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'])
           .range(from, from + PAGE - 1);
         if (error) { console.error("Erro ao buscar ações abertas:", error); break; }
@@ -134,12 +147,12 @@ export async function GET(request: Request) {
       // Agrupa por vendedor de destino: um update por lote de ids, não um por ação.
       const porDestino = new Map<string, { cod: string; nome: string; ids: string[] }>();
       for (const a of abertas) {
-        if (a.codigo_cliente == null) continue;
-        const dono = donoDoCadastro.get(chaveCadastro(a.codigo_cliente, a.loja_cliente));
-        if (!dono) continue;
-        if (dono.cod === String(a.vendedor_responsavel ?? '').trim()) continue;
-        if (!porDestino.has(dono.cod)) porDestino.set(dono.cod, { ...dono, ids: [] });
-        porDestino.get(dono.cod)!.ids.push(a.id);
+        const cad = cadastroDaAcao(a);
+        if (!cad?.VENDEDOR_RESP) continue;
+        const cod = String(cad.VENDEDOR_RESP).trim();
+        if (cod === String(a.vendedor_responsavel ?? '').trim()) continue;
+        if (!porDestino.has(cod)) porDestino.set(cod, { cod, nome: cad.NOME_VENDEDOR_RESP, ids: [] });
+        porDestino.get(cod)!.ids.push(a.id);
       }
 
       for (const destino of porDestino.values()) {
@@ -159,7 +172,7 @@ export async function GET(request: Request) {
     // por cadastro (código+loja) e o mesmo cliente com 2 cadastros ganhava 2 ações.
     const pendenteLigarGrupo = new Set<string>();
     for (const a of acoesPendentes) {
-      if (a.tipo === 'LIGAR') pendenteLigarGrupo.add(grupoDe(a.codigo_cliente, a.loja_cliente));
+      if (a.tipo === 'LIGAR') pendenteLigarGrupo.add(grupoDaAcao(a));
     }
 
     // Cooldown: se um resgate do grupo foi CONCLUÍDO/CANCELADO há menos de 90 dias, não
@@ -173,14 +186,14 @@ export async function GET(request: Request) {
       while (true) {
         const { data, error } = await supabase
           .from('crm_acoes')
-          .select('codigo_cliente, loja_cliente')
+          .select('codigo_cliente, loja_cliente, filial_cliente')
           .eq('origem', 'SISTEMA_AUTO')
           .eq('tipo', 'LIGAR')
           .in('status', ['CONCLUIDA', 'CANCELADA'])
           .or(`data_conclusao.gte.${cutoff},updated_at.gte.${cutoff}`)
           .range(from, from + PAGE - 1);
         if (error) { console.error("Erro ao buscar resgates com desfecho recente:", error); break; }
-        for (const a of data || []) cooldownGrupo.add(grupoDe(a.codigo_cliente, a.loja_cliente));
+        for (const a of data || []) cooldownGrupo.add(grupoDaAcao(a));
         if (!data || data.length < PAGE) break;
         from += PAGE;
       }
@@ -203,7 +216,7 @@ export async function GET(request: Request) {
       // não uma por cadastro/empresa (era o que duplicava p/ quem existe na 01 e na 10).
       const elegiveisPorGrupo = new Map<string, any[]>();
       for (const c of clientes) {
-        const g = grupoDe(c.CODIGO_CLIENTE, c.LOJA_CLIENTE);
+        const g = grupoDoCadastro(c);
         if (!elegiveisPorGrupo.has(g)) elegiveisPorGrupo.set(g, []);
         elegiveisPorGrupo.get(g)!.push(c);
       }
@@ -254,7 +267,9 @@ export async function GET(request: Request) {
     const lim45 = new Date(hojeFiltro); lim45.setDate(lim45.getDate() - 45);
     const lim30 = new Date(hojeFiltro); lim30.setDate(lim30.getDate() - 30);
     const fmtData = (d: Date) => d.toISOString().split('T')[0];
-    const COLS_ORC = 'ORC_NUMERO_ORCAMENTO, ORC_DATA_EMISSAO_ORCAMENTO, ORC_DATA_ORCAMENTO, ORC_VALOR_TOTAL, Status, STATUS_OVERRIDE, CODIGO_CLIENTE, LOJA_CLIENTE, CLIENTE_ORC, ORC_CODIGO_VENDEDOR, ORC_NOME_VENDEDOR';
+    // FILIAL_ORC entra para carimbar a empresa na ação: sem ela, uma ação de orçamento
+    // com código+loja repetido entre filiais não tem como ser ligada ao cliente certo.
+    const COLS_ORC = 'FILIAL_ORC, ORC_NUMERO_ORCAMENTO, ORC_DATA_EMISSAO_ORCAMENTO, ORC_DATA_ORCAMENTO, ORC_VALOR_TOTAL, Status, STATUS_OVERRIDE, CODIGO_CLIENTE, LOJA_CLIENTE, CLIENTE_ORC, ORC_CODIGO_VENDEDOR, ORC_NOME_VENDEDOR';
     const orcamentos: any[] = [];
     let errOrcamentos: any = null;
     {
@@ -304,6 +319,7 @@ export async function GET(request: Request) {
                   codigo_cliente: o.CODIGO_CLIENTE,
                   loja_cliente: o.LOJA_CLIENTE,
                   nome_cliente: o.CLIENTE_ORC,
+                  filial_cliente: filialDe(o.FILIAL_ORC),
                   numero_orcamento: String(o.ORC_NUMERO_ORCAMENTO),
                   vendedor_responsavel: o.ORC_CODIGO_VENDEDOR,
                   nome_vendedor: o.ORC_NOME_VENDEDOR,
@@ -345,6 +361,7 @@ export async function GET(request: Request) {
                     codigo_cliente: o.CODIGO_CLIENTE,
                     loja_cliente: o.LOJA_CLIENTE,
                     nome_cliente: o.CLIENTE_ORC,
+                    filial_cliente: filialDe(o.FILIAL_ORC),
                     numero_orcamento: String(o.ORC_NUMERO_ORCAMENTO),
                     vendedor_responsavel: o.ORC_CODIGO_VENDEDOR,
                     nome_vendedor: o.ORC_NOME_VENDEDOR,

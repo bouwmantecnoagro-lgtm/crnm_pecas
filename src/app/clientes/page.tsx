@@ -26,7 +26,7 @@ export default function ClientesPage() {
   const [obsFiltro, setObsFiltro] = useState(false); // só clientes com observação
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc' | 'desc'} | null>(null);
 
-  const [cliente360, setCliente360] = useState<{ codigo: string, loja: string } | null>(null);
+  const [cliente360, setCliente360] = useState<{ codigo: string, loja: string, filial?: string | null } | null>(null);
 
   const isBuscandoCurto = deferredBusca.length > 0 && deferredBusca.length < 3;
 
@@ -244,7 +244,7 @@ export default function ClientesPage() {
                 {!isBuscandoCurto && itensPaginados.map((c) => (
                   <tr
                     key={c.id}
-                    onClick={() => setCliente360({ codigo: c.CODIGO_CLIENTE, loja: c.LOJA_CLIENTE })}
+                    onClick={() => setCliente360({ codigo: c.CODIGO_CLIENTE, loja: c.LOJA_CLIENTE, filial: c.FILIAL })}
                     className="hover:bg-white/[0.02] transition-colors cursor-pointer group"
                   >
                     <td className="px-6 py-4">
@@ -360,6 +360,7 @@ export default function ClientesPage() {
         <Cliente360Modal
           codigoCliente={cliente360.codigo}
           lojaCliente={cliente360.loja}
+          filialCliente={cliente360.filial}
           onClose={() => setCliente360(null)}
         />
       )}

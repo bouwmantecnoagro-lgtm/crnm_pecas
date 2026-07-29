@@ -35,7 +35,7 @@ export default function MaquinasPage() {
   const [estadoFiltro, setEstadoFiltro] = useState('');
   const [somenteRecentes, setSomenteRecentes] = useState(false);
   const [diasFiltroRecente, setDiasFiltroRecente] = useState(90);
-  const [cliente360, setCliente360] = useState<{ codigo: string, loja: string } | null>(null);
+  const [cliente360, setCliente360] = useState<{ codigo: string, loja: string, filial?: string | null } | null>(null);
 
   // Quando o usuário chega via /maquinas?recentes=N (vindo do card Cross-Sell), ativa o filtro
   // automaticamente para o mesmo período mostrado no dashboard.
@@ -180,7 +180,7 @@ export default function MaquinasPage() {
               </thead>
               <tbody className="divide-y divide-white/5">
                 {paginados.map((m) => (
-                  <tr key={m.id} className="hover:bg-white/[0.02] transition-colors cursor-pointer group" onClick={() => setCliente360({ codigo: m.COD_CLIENTE || m.CODIGO_CLIENTE, loja: m.LOJA_CLIENTE })}>
+                  <tr key={m.id} className="hover:bg-white/[0.02] transition-colors cursor-pointer group" onClick={() => setCliente360({ codigo: m.COD_CLIENTE || m.CODIGO_CLIENTE, loja: m.LOJA_CLIENTE, filial: m.FILIAL })}>
                     <td className="px-6 py-4">
                       <div className="font-medium text-white group-hover:text-amber-300 transition-colors">{fixEncoding(m.MODELO)}</div>
                       <div className="text-xs text-amber-300 font-mono mt-1">Chassi: {m.CHASSI || '—'}</div>
@@ -262,6 +262,7 @@ export default function MaquinasPage() {
         <Cliente360Modal
           codigoCliente={cliente360.codigo}
           lojaCliente={cliente360.loja}
+          filialCliente={cliente360.filial}
           onClose={() => setCliente360(null)}
         />
       )}

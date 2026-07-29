@@ -283,6 +283,7 @@ export default function PipelineOrcamentos() {
                           setCriarAcaoData({
                             clienteCodigo: o.CODIGO_CLIENTE,
                             clienteLoja: o.LOJA_CLIENTE,
+                            clienteFilial: o.FILIAL_ORC,
                             clienteNome: o.CLIENTE_ORC,
                             numeroOrcamento: String(o.ORC_NUMERO_ORCAMENTO),
                             tipoSugerido: 'FOLLOW_UP_ORCAMENTO',
@@ -333,6 +334,7 @@ export default function PipelineOrcamentos() {
         <CriarAcaoModal
           clienteCodigo={criarAcaoData.clienteCodigo}
           clienteLoja={criarAcaoData.clienteLoja}
+          clienteFilial={criarAcaoData.clienteFilial}
           clienteNome={criarAcaoData.clienteNome}
           numeroOrcamento={criarAcaoData.numeroOrcamento}
           tipoSugerido={criarAcaoData.tipoSugerido}

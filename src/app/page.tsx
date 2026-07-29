@@ -15,7 +15,7 @@ import { useData } from '@/contexts/DataContext';
 import { getStatusVivo as getStatusOrc, STATUS_FECHADOS } from '@/lib/orcamento';
 import { buildIndiceVendasInternas } from '@/lib/vendas-internas';
 import { diasEf } from '@/lib/recencia';
-import { chaveCliente } from '@/lib/acao';
+import { buildIndiceClientes, filialDe } from '@/lib/acao';
 import { DashboardSkeleton } from '@/components/Skeletons';
 
 // Filtro global por intervalo de EMISSÃO do orçamento (data início/fim, 'YYYY-MM-DD').
@@ -33,7 +33,7 @@ function emissaoNoRange(dateStr: any, ini: string, fim: string): boolean {
 export default function Dashboard() {
   const { clientes, orcamentos, maquinas, loading, loadingOrcamentos, ultimaSync, acoes, refreshAcoes } = useData();
   const [vendedorSelecionado, setVendedorSelecionado] = useState<any>(null);
-  const [clienteModal, setClienteModal] = useState<{codigo: string, loja: string} | null>(null);
+  const [clienteModal, setClienteModal] = useState<{codigo: string, loja: string, filial?: string | null} | null>(null);
   const [concluirAcao, setConcluirAcao] = useState<any>(null);
   // KPIs de orçamento agregados no servidor (função dashboard_orcamentos_kpis).
   // Chegam em poucos KB, antes dos 37k orçamentos — KPIs do topo ficam instantâneos.
@@ -129,21 +129,18 @@ export default function Dashboard() {
     return true;
   }), [maquinas, nomeVendedorSelecionado, fFilial]);
 
-  // Para ações: filial vem do cliente vinculado (a tabela crm_acoes não tem filial)
-  const clienteFilialIdx = useMemo(() => {
-    const idx = new Map<string, string>();
-    clientes.forEach((c: any) => idx.set(chaveCliente(c.CODIGO_CLIENTE, c.LOJA_CLIENTE), String(c.FILIAL || '')));
-    return idx;
-  }, [clientes]);
+  // Para ações: a filial é a da própria ação quando ela sabe; senão, a do cadastro
+  // vinculado. O índice recusa o vínculo quando código+loja é ambíguo entre empresas.
+  const indiceClientes = useMemo(() => buildIndiceClientes(clientes), [clientes]);
 
   const acoesFiltradas = useMemo(() => acoes.filter((a: any) => {
     if (fVendedor && String(a.vendedor_responsavel || '') !== fVendedor) return false;
     if (fFilial && a.codigo_cliente) {
-      const fil = clienteFilialIdx.get(chaveCliente(a.codigo_cliente, a.loja_cliente));
-      if (fil && fil !== fFilial) return false;
+      const fil = filialDe(a.filial_cliente) ?? filialDe(indiceClientes.clienteDaAcao(a)?.FILIAL);
+      if (fil && fil !== filialDe(fFilial)) return false;
     }
     return true;
-  }), [acoes, fVendedor, fFilial, clienteFilialIdx]);
+  }), [acoes, fVendedor, fFilial, indiceClientes]);
 
   // === Cálculos derivados (sobre os filtrados) ===
   // Risco de evasão pela compra mais recente do grupo (CNPJ_RAIZ), não por cadastro isolado.
@@ -626,7 +623,7 @@ export default function Dashboard() {
                       acao={a}
                       compact
                       onConcluir={() => setConcluirAcao(a)}
-                      onClickCliente={a.codigo_cliente ? (cod, loja) => setClienteModal({codigo: cod, loja}) : undefined}
+                      onClickCliente={a.codigo_cliente ? (cod, loja, filial) => setClienteModal({codigo: cod, loja, filial}) : undefined}
                     />
                   ))}
                 </div>
@@ -678,7 +675,7 @@ export default function Dashboard() {
 
           <div className="space-y-2 max-h-[350px] overflow-y-auto custom-scrollbar pr-2">
             {maquinasRecentesFiltradas.slice(0, 20).map((m) => (
-              <div key={m.id} onClick={() => setClienteModal({codigo: m.COD_CLIENTE || m.CODIGO_CLIENTE, loja: m.LOJA_CLIENTE})} className="group glass-panel !bg-amber-500/[0.02] hover:!bg-amber-500/[0.08] p-3.5 transition-all flex justify-between items-center cursor-pointer border border-transparent hover:border-amber-500/20">
+              <div key={m.id} onClick={() => setClienteModal({codigo: m.COD_CLIENTE || m.CODIGO_CLIENTE, loja: m.LOJA_CLIENTE, filial: m.FILIAL})} className="group glass-panel !bg-amber-500/[0.02] hover:!bg-amber-500/[0.08] p-3.5 transition-all flex justify-between items-center cursor-pointer border border-transparent hover:border-amber-500/20">
                 <div className="flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs bg-amber-500/10 text-amber-400 border border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.2)]">
                     <Tractor size={16} />
@@ -765,7 +762,7 @@ export default function Dashboard() {
               const maqs = maquinasPorCliente.get(`${c.CODIGO_CLIENTE}_${c.LOJA_CLIENTE}`) || [];
               const ultimasMaquinas = maqs.sort((a: any, b: any) => new Date(b.EMISSAO || 0).getTime() - new Date(a.EMISSAO || 0).getTime()).slice(0, 1);
               return (
-                <div key={c.id} onClick={() => setClienteModal({codigo: c.CODIGO_CLIENTE, loja: c.LOJA_CLIENTE})} className="group glass-panel !bg-white/[0.02] hover:!bg-white/[0.05] p-3.5 transition-all flex justify-between items-center cursor-pointer border border-transparent hover:border-white/10">
+                <div key={c.id} onClick={() => setClienteModal({codigo: c.CODIGO_CLIENTE, loja: c.LOJA_CLIENTE, filial: c.FILIAL})} className="group glass-panel !bg-white/[0.02] hover:!bg-white/[0.05] p-3.5 transition-all flex justify-between items-center cursor-pointer border border-transparent hover:border-white/10">
                   <div className="flex items-center gap-3">
                     <div className={`w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs ${(diasEf(c) ?? 0) > 90 ? 'bg-red-500/10 text-red-400 border border-red-500/20' : (diasEf(c) ?? 0) > 30 ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
                       {(c.NOME_CLIENTE || '??').substring(0,2).toUpperCase()}
@@ -1030,6 +1027,7 @@ export default function Dashboard() {
         <Cliente360Modal
           codigoCliente={clienteModal.codigo}
           lojaCliente={clienteModal.loja}
+          filialCliente={clienteModal.filial}
           onClose={() => setClienteModal(null)}
         />
       )}

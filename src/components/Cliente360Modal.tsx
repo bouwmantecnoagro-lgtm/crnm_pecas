@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X, Loader2, MapPin, Phone, Mail, Tractor, ReceiptText, ShieldCheck, Flame, Skull, AlertTriangle, MessageCircle, Zap, Clock, CheckCircle2, Edit2, Save, GraduationCap } from 'lucide-react';
 import AcaoCard from '@/components/AcaoCard';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
@@ -8,7 +8,7 @@ import ConcluirAcaoModal from '@/components/ConcluirAcaoModal';
 import IndicarTreinamentoModal from '@/components/IndicarTreinamentoModal';
 import { useData } from '@/contexts/DataContext';
 import { diasEf, recenciaDeOutraFilial } from '@/lib/recencia';
-import { chaveCliente } from '@/lib/acao';
+import { buildIndiceClientes } from '@/lib/acao';
 import { Cliente360Skeleton } from '@/components/Skeletons';
 
 function fixEncoding(str: any) {
@@ -30,10 +30,13 @@ function fixEncoding(str: any) {
 interface Cliente360ModalProps {
   codigoCliente: string;
   lojaCliente: string;
+  /** Empresa/filial do cadastro (01/05/10/15). O par código+loja se repete entre elas —
+   *  sem isso o modal pode abrir o cliente de outra filial. */
+  filialCliente?: string | null;
   onClose: () => void;
 }
 
-export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }: Cliente360ModalProps) {
+export default function Cliente360Modal({ codigoCliente, lojaCliente, filialCliente, onClose }: Cliente360ModalProps) {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -75,7 +78,8 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
       setLoading(true);
       setErrorMsg(null);
       try {
-        const res = await fetch(`/api/dados/cliente360?codigo_cliente=${codigoCliente}&loja_cliente=${lojaCliente}`);
+        const qFilial = filialCliente ? `&filial=${encodeURIComponent(filialCliente)}` : '';
+        const res = await fetch(`/api/dados/cliente360?codigo_cliente=${codigoCliente}&loja_cliente=${lojaCliente}${qFilial}`);
         const json = await res.json();
         if (!res.ok || json.error) {
           throw new Error(json.error || 'Erro ao carregar os dados do cliente.');
@@ -88,7 +92,7 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
       setLoading(false);
     }
     load();
-  }, [codigoCliente, lojaCliente]);
+  }, [codigoCliente, lojaCliente, filialCliente]);
 
   // Status da indicação de treinamento (mostra "Indicado" se há uma em aberto)
   async function carregarIndicacao() {
@@ -110,12 +114,15 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codigoCliente, lojaCliente]);
 
-  // Filtrar ações desse cliente do contexto global
+  // Filtrar ações desse cliente do contexto global. Casa pelo cadastro inteiro
+  // (filial + código + loja): o par código+loja sozinho traz ações de clientes
+  // homônimos de outras empresas.
+  const indiceClientes = useMemo(() => buildIndiceClientes(clientes), [clientes]);
   useEffect(() => {
-    const chave = chaveCliente(codigoCliente, lojaCliente);
-    const filtradas = acoes.filter((a: any) => chaveCliente(a.codigo_cliente, a.loja_cliente) === chave);
-    setAcoesCliente(filtradas);
-  }, [acoes, codigoCliente, lojaCliente]);
+    const cliente = data?.cliente;
+    if (!cliente) { setAcoesCliente([]); return; }
+    setAcoesCliente(acoes.filter((a: any) => indiceClientes.ehDoCliente(a, cliente)));
+  }, [acoes, indiceClientes, data]);
 
   // Preenche dados ao entrar em modo de edição
   useEffect(() => {
@@ -672,6 +679,7 @@ export default function Cliente360Modal({ codigoCliente, lojaCliente, onClose }:
         <CriarAcaoModal
           clienteCodigo={codigoCliente}
           clienteLoja={lojaCliente}
+          clienteFilial={data?.cliente?.FILIAL}
           clienteNome={cliente.NOME_CLIENTE}
           origemTela="CLIENTE360"
           vendedores={vendedoresUnicos}

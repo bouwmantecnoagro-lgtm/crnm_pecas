@@ -25,6 +25,8 @@ const PRIORIDADES = [
 interface CriarAcaoModalProps {
   clienteCodigo?: string | number;
   clienteLoja?: string | number;
+  /** Empresa do cadastro — código+loja se repete entre as filiais. */
+  clienteFilial?: string | null;
   clienteNome?: string;
   numeroOrcamento?: string;
   tipoSugerido?: string;
@@ -37,6 +39,7 @@ interface CriarAcaoModalProps {
 export default function CriarAcaoModal({
   clienteCodigo,
   clienteLoja,
+  clienteFilial,
   clienteNome,
   numeroOrcamento,
   tipoSugerido,
@@ -128,6 +131,7 @@ export default function CriarAcaoModal({
           prioridade,
           codigo_cliente: clienteCodigo || null,
           loja_cliente: clienteLoja || null,
+          filial_cliente: clienteFilial || null,
           nome_cliente: clienteNome || null,
           numero_orcamento: numeroOrcamento || null,
           vendedor_responsavel: vendedorSel || null,

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { filialDe } from '@/lib/acao';
 
 export const dynamic = 'force-dynamic';
 
@@ -14,6 +15,7 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const codigo_cliente = searchParams.get('codigo_cliente');
     const loja_cliente = searchParams.get('loja_cliente');
+    const filial = searchParams.get('filial');
 
     if (!codigo_cliente || !loja_cliente) {
       return NextResponse.json({ error: 'Faltam parâmetros' }, { status: 400 });
@@ -25,18 +27,22 @@ export async function GET(request: Request) {
 
     // Busca o Cliente Principal — RLS filtra por VENDEDOR_RESP automaticamente.
     // Se o cliente não está no escopo do user, vem vazio (idêntico a "não encontrado").
+    // O par (código, loja) NÃO é único: ele se repete entre as empresas 01/05/10/15 com
+    // clientes diferentes (000038/01 é LAERTE na 01 e RODRIGO BAGATINI na 10). Sem a
+    // filial o .limit(1) abria um cliente qualquer — quem clicava num card de ação caía
+    // no cadastro errado. Quando o chamador sabe a filial, ela manda.
     const { data: clienteData, error: errCli } = await supabase
       .from('crm_clientes')
       .select('*')
-      .or(`and(CODIGO_CLIENTE.eq.${codigo_cliente},LOJA_CLIENTE.eq.${loja_cliente}),and(CODIGO_CLIENTE.eq.${codPad},LOJA_CLIENTE.eq.${lojaPad})`)
-      .limit(1);
+      .or(`and(CODIGO_CLIENTE.eq.${codigo_cliente},LOJA_CLIENTE.eq.${loja_cliente}),and(CODIGO_CLIENTE.eq.${codPad},LOJA_CLIENTE.eq.${lojaPad})`);
 
     if (errCli) throw errCli;
     if (!clienteData || clienteData.length === 0) {
       return NextResponse.json({ error: 'Cliente não encontrado na base.' }, { status: 404 });
     }
 
-    const cliente = clienteData[0];
+    const filPad = filial ? filialDe(filial) : null;
+    const cliente = (filPad && clienteData.find((c) => filialDe(c.FILIAL) === filPad)) || clienteData[0];
 
     // Recência consolidada por grupo (CNPJ_RAIZ) — a view ignora RLS pra enxergar
     // todas as filiais. Se outra filial comprou mais recente, o cliente NÃO é evasão.

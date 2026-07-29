@@ -43,7 +43,9 @@ interface AcaoCardProps {
   onConcluir?: () => void;
   onEdit?: () => void;
   onDragStart?: (e: React.DragEvent) => void;
-  onClickCliente?: (codigo: string, loja: string) => void;
+  // A filial vai junto porque código+loja se repete entre as empresas 01/05/10/15:
+  // sem ela o Cliente360 abre o cadastro de outro cliente.
+  onClickCliente?: (codigo: string, loja: string, filial?: string | null) => void;
   onClickOrcamento?: (numero: string) => void;
   compact?: boolean;
 }
@@ -79,7 +81,7 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
           <p className="text-xs font-medium text-gray-200 truncate">{acao.titulo}</p>
           <p 
             className={`text-[10px] truncate transition-colors ${acao.codigo_cliente && onClickCliente ? 'text-sky-400 hover:text-sky-300 font-medium cursor-pointer underline decoration-sky-500/30' : 'text-gray-500'}`}
-            onClick={acao.codigo_cliente && onClickCliente ? (e) => { e.stopPropagation(); onClickCliente(acao.codigo_cliente, acao.loja_cliente); } : undefined}
+            onClick={acao.codigo_cliente && onClickCliente ? (e) => { e.stopPropagation(); onClickCliente(acao.codigo_cliente, acao.loja_cliente, acao.filial_cliente); } : undefined}
             onMouseDown={acao.codigo_cliente && onClickCliente ? (e) => e.stopPropagation() : undefined}
             title={acao.codigo_cliente && onClickCliente ? "Ver detalhes do cliente" : ""}
           >
@@ -150,7 +152,7 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
 
       {/* Cliente */}
       <h4 
-        onClick={acao.codigo_cliente && onClickCliente ? (e) => { e.stopPropagation(); onClickCliente(acao.codigo_cliente, acao.loja_cliente); } : undefined}
+        onClick={acao.codigo_cliente && onClickCliente ? (e) => { e.stopPropagation(); onClickCliente(acao.codigo_cliente, acao.loja_cliente, acao.filial_cliente); } : undefined}
         onMouseDown={acao.codigo_cliente && onClickCliente ? (e) => e.stopPropagation() : undefined}
         className={`font-semibold text-sm leading-tight mb-1 pl-2 transition-colors ${acao.codigo_cliente && onClickCliente ? 'text-sky-400 hover:text-sky-300 cursor-pointer underline decoration-sky-500/30 relative z-10' : 'text-gray-100 group-hover:text-white'}`}
         title={acao.codigo_cliente && onClickCliente ? "Ver detalhes do cliente" : ""}

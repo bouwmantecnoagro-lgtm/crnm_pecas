@@ -94,7 +94,7 @@ function OrcamentosContent() {
   const [vencDe, setVencDe] = useState(() => searchParams.get('vencDe') || '');
   const [vencAte, setVencAte] = useState(() => searchParams.get('vencAte') || '');
   const [sortConfig, setSortConfig] = useState<{key: string, direction: 'asc' | 'desc'} | null>(null);
-  const [cliente360, setCliente360] = useState<{ codigo: string, loja: string } | null>(null);
+  const [cliente360, setCliente360] = useState<{ codigo: string, loja: string, filial?: string | null } | null>(null);
 
   // Reset pagination when filters change
   useEffect(() => {
@@ -285,7 +285,7 @@ function OrcamentosContent() {
               </thead>
               <tbody className="divide-y divide-white/5">
                 {itensPaginados.map((o) => (
-                  <tr key={o.id} className="hover:bg-white/[0.02] transition-colors cursor-pointer group" onClick={() => setCliente360({ codigo: o.CODIGO_CLIENTE, loja: o.LOJA_CLIENTE })}>
+                  <tr key={o.id} className="hover:bg-white/[0.02] transition-colors cursor-pointer group" onClick={() => setCliente360({ codigo: o.CODIGO_CLIENTE, loja: o.LOJA_CLIENTE, filial: o.FILIAL_ORC })}>
                     <td className="px-6 py-4">
                       <div className="font-medium text-white group-hover:text-emerald-300 transition-colors">{o.CLIENTE_ORC || '—'}</div>
                       <div className="text-xs text-gray-400 mt-1 uppercase flex items-center gap-1">
@@ -376,6 +376,7 @@ function OrcamentosContent() {
         <Cliente360Modal
           codigoCliente={cliente360.codigo}
           lojaCliente={cliente360.loja}
+          filialCliente={cliente360.filial}
           onClose={() => setCliente360(null)}
         />
       )}

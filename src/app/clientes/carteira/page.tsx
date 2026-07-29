@@ -7,12 +7,12 @@ import Cliente360Modal from '@/components/Cliente360Modal';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
 import { useData } from '@/contexts/DataContext';
 import { diasEf, recenciaDeOutraFilial } from '@/lib/recencia';
-import { chaveCliente } from '@/lib/acao';
+import { buildIndiceClientes } from '@/lib/acao';
 import { KanbanSkeleton } from '@/components/Skeletons';
 
 export default function PipelineCarteira() {
   const { clientes, loading, orcamentos, refreshAcoes, acoes } = useData();
-  const [cliente360, setCliente360] = useState<{codigo: string, loja: string} | null>(null);
+  const [cliente360, setCliente360] = useState<{codigo: string, loja: string, filial?: string | null} | null>(null);
   const [criarAcaoData, setCriarAcaoData] = useState<any>(null);
 
   // Vendedores para o modal
@@ -27,10 +27,9 @@ export default function PipelineCarteira() {
 
   // Contar ações ativas por cliente
   const acoesAtivas = acoes.filter((a: any) => ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'].includes(a.status));
-  const acoesPorCliente = (cod: string, loja: string) => {
-    const chave = chaveCliente(cod, loja);
-    return acoesAtivas.filter((a: any) => chaveCliente(a.codigo_cliente, a.loja_cliente) === chave).length;
-  };
+  const indiceClientes = buildIndiceClientes(clientes);
+  const acoesPorCliente = (cliente: any) =>
+    acoesAtivas.filter((a: any) => indiceClientes.ehDoCliente(a, cliente)).length;
 
   // Sugestão de tipo baseado na coluna
   const tipoSugerido = (chave: string) => {
@@ -98,11 +97,11 @@ export default function PipelineCarteira() {
             {/* Cards da Coluna */}
             <div className="p-3 flex-1 overflow-y-auto space-y-3 custom-scrollbar">
               {coluna.items.sort((a,b) => (diasEf(b) ?? 0) - (diasEf(a) ?? 0)).map((c, i) => {
-                const numAcoes = acoesPorCliente(c.CODIGO_CLIENTE, c.LOJA_CLIENTE);
+                const numAcoes = acoesPorCliente(c);
                 return (
                 <div 
                   key={i} 
-                  onClick={() => setCliente360({codigo: c.CODIGO_CLIENTE, loja: c.LOJA_CLIENTE})}
+                  onClick={() => setCliente360({codigo: c.CODIGO_CLIENTE, loja: c.LOJA_CLIENTE, filial: c.FILIAL})}
                   className="glass-panel p-4 cursor-pointer hover:border-white/20 transition-all hover:-translate-y-1 group relative overflow-hidden"
                 >
                   <div className={`absolute top-0 left-0 w-1 h-full ${coluna.bg.replace('10', '50')} opacity-50`} />
@@ -151,6 +150,7 @@ export default function PipelineCarteira() {
                           setCriarAcaoData({
                             clienteCodigo: c.CODIGO_CLIENTE,
                             clienteLoja: c.LOJA_CLIENTE,
+                            clienteFilial: c.FILIAL,
                             clienteNome: c.NOME_CLIENTE,
                             tipoSugerido: tipoSugerido(chave),
                             vendedorCodigo: c.VENDEDOR_RESP,
@@ -196,9 +196,10 @@ export default function PipelineCarteira() {
       {/* MODAL 360 GRAUS */}
       {cliente360 && (
         <Cliente360Modal 
-          codigoCliente={cliente360.codigo} 
-          lojaCliente={cliente360.loja} 
-          onClose={() => setCliente360(null)} 
+          codigoCliente={cliente360.codigo}
+          lojaCliente={cliente360.loja}
+          filialCliente={cliente360.filial}
+          onClose={() => setCliente360(null)}
         />
       )}
 
@@ -207,6 +208,7 @@ export default function PipelineCarteira() {
         <CriarAcaoModal
           clienteCodigo={criarAcaoData.clienteCodigo}
           clienteLoja={criarAcaoData.clienteLoja}
+          clienteFilial={criarAcaoData.clienteFilial}
           clienteNome={criarAcaoData.clienteNome}
           tipoSugerido={criarAcaoData.tipoSugerido}
           origemTela="CARTEIRA"
