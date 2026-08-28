@@ -168,6 +168,96 @@ export async function GET(request: Request) {
       }
     }
 
+    // --- PASSO 0.5: FOLLOW-UP MORRE JUNTO COM O ORÇAMENTO ---
+    // Follow-up de orçamento existe para fechar a venda. Quando o orçamento é CANCELADO
+    // (no Protheus, ou via "Sem Interesse" no CRM → STATUS_OVERRIDE), o card não pode
+    // continuar Pendente no painel — vai para CANCELADA, com o motivo no `resultado`.
+    // Só mexe em FOLLOW_UP_ORCAMENTO: REATIVACAO_ORCAMENTO existe JUSTAMENTE para
+    // orçamento cancelado/vencido (REGRA 3) e não pode ser encerrada por esta regra.
+    let followUpsCancelados = 0;
+    {
+      // Follow-ups em aberto com orçamento vinculado — do robô ou criados à mão.
+      const followUps: any[] = [];
+      let from = 0;
+      const PAGE = 1000;
+      while (true) {
+        const { data, error } = await supabase
+          .from('crm_acoes')
+          .select('id, numero_orcamento, filial_cliente, codigo_cliente, loja_cliente')
+          .eq('tipo', 'FOLLOW_UP_ORCAMENTO')
+          .in('status', ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'])
+          .not('numero_orcamento', 'is', null)
+          .range(from, from + PAGE - 1);
+        if (error) { console.error('Erro ao buscar follow-ups em aberto:', error); break; }
+        followUps.push(...(data || []));
+        if (!data || data.length < PAGE) break;
+        from += PAGE;
+      }
+
+      // Status efetivo (override do CRM > ERP) de cada linha dos orçamentos vinculados.
+      // O número NÃO identifica o orçamento sozinho: repete entre empresas E recicla entre
+      // lojas/anos na mesma empresa (#00008426 é um cliente em 010203/2026 e OUTRO em
+      // 010201/2022). Por isso cada linha guarda filial e cliente para o desempate abaixo.
+      const linhasPorNumero = new Map<string, { fil: string | null; cli: string; st: string }[]>();
+      const numeros = [...new Set(followUps.map(a => String(a.numero_orcamento)))];
+      for (let i = 0; i < numeros.length; i += 200) {
+        const chunk = numeros.slice(i, i + 200);
+        // Pagina DENTRO do chunk: 200 números podem ter bem mais de 1000 linhas (há
+        // orçamento com 40+ produtos) e o PostgREST capa a resposta em 1000 — sem o
+        // range, linhas ABERTO ficavam de fora e o orçamento parecia "todo cancelado".
+        let fromOrc = 0;
+        while (true) {
+          const { data, error } = await supabase
+            .from('crm_orcamentos')
+            .select('FILIAL_ORC, ORC_NUMERO_ORCAMENTO, CODIGO_CLIENTE, LOJA_CLIENTE, Status, STATUS_OVERRIDE')
+            .in('ORC_NUMERO_ORCAMENTO', chunk)
+            .order('id') // ordem estável — paginar sem ORDER BY pode pular linhas entre páginas
+            .range(fromOrc, fromOrc + PAGE - 1);
+          if (error) { console.error('Erro ao buscar status dos orçamentos vinculados:', error); break; }
+          for (const o of data || []) {
+            const num = String(o.ORC_NUMERO_ORCAMENTO);
+            if (!linhasPorNumero.has(num)) linhasPorNumero.set(num, []);
+            linhasPorNumero.get(num)!.push({
+              fil: filialDe(o.FILIAL_ORC),
+              cli: chaveCliente(o.CODIGO_CLIENTE, o.LOJA_CLIENTE),
+              st: String(o.STATUS_OVERRIDE || o.Status || '').toUpperCase().trim(),
+            });
+          }
+          if (!data || data.length < PAGE) break;
+          fromOrc += PAGE;
+        }
+      }
+
+      const idsCancelar: string[] = [];
+      for (const a of followUps) {
+        let linhas = linhasPorNumero.get(String(a.numero_orcamento)) ?? [];
+        const fil = filialDe(a.filial_cliente);
+        if (fil) linhas = linhas.filter(l => l.fil === fil);
+        if (a.codigo_cliente != null) {
+          const cli = chaveCliente(a.codigo_cliente, a.loja_cliente);
+          linhas = linhas.filter(l => l.cli === cli);
+        }
+        // Sem linha do orçamento (não sincronizado ou removido no cleanup) → não mexe.
+        // Cancelado como um todo: TODAS as linhas (uma por produto) canceladas.
+        // Cancel.Parcial no Protheus deixa itens vivos — aí o follow-up continua valendo.
+        if (linhas.length > 0 && linhas.every(l => l.st === 'CANCELADO')) idsCancelar.push(a.id);
+      }
+
+      for (let i = 0; i < idsCancelar.length; i += 200) {
+        const lote = idsCancelar.slice(i, i + 200);
+        const { error } = await supabase
+          .from('crm_acoes')
+          .update({
+            status: 'CANCELADA',
+            resultado: 'ORCAMENTO_CANCELADO',
+            updated_at: new Date().toISOString(),
+          })
+          .in('id', lote);
+        if (error) console.error('Erro ao cancelar follow-ups de orçamentos cancelados:', error);
+        else followUpsCancelados += lote.length;
+      }
+    }
+
     // Grupos que já têm resgate (LIGAR) pendente em QUALQUER cadastro — antes o dedup era
     // por cadastro (código+loja) e o mesmo cliente com 2 cadastros ganhava 2 ações.
     const pendenteLigarGrupo = new Set<string>();
@@ -382,7 +472,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Processo finalizado. ${acoesCriadas} novas ações automáticas geradas, ${acoesReatribuidas} realinhadas com a carteira atual.`
+      message: `Processo finalizado. ${acoesCriadas} novas ações automáticas geradas, ${acoesReatribuidas} realinhadas com a carteira atual, ${followUpsCancelados} follow-ups cancelados (orçamento cancelado).`
     });
 
   } catch (error: any) {
