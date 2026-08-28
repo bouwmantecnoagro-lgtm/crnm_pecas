@@ -101,6 +101,26 @@ function OrcamentosContent() {
     setPaginaAtual(1);
   }, [deferredBusca, vendedorFiltro, ordemFiltro, statusFiltro, periodoVencFiltro, emissaoDe, emissaoAte, vencDe, vencAte, sortConfig]);
 
+  // Contagem por status para as abas. Uma passada só sobre a base carregada —
+  // o mesmo getStatusOrcamento da tabela, para o número da aba bater com a lista.
+  const contagemStatus = useMemo(() => {
+    const c: Record<string, number> = { '': 0, ABERTO: 0, VENCIDO: 0, FATURADO: 0, CANCELADO: 0 };
+    for (const o of orcamentos) {
+      const st = getStatusOrcamento(o) || 'ABERTO';
+      c['']++;
+      if (c[st] !== undefined) c[st]++;
+    }
+    return c;
+  }, [orcamentos]);
+
+  const ABAS = [
+    { key: '', label: 'Todos', cor: 'text-gray-200', ativo: 'border-gray-300 text-white' },
+    { key: 'ABERTO', label: 'Em aberto', cor: 'text-sky-400', ativo: 'border-sky-400 text-sky-300' },
+    { key: 'VENCIDO', label: 'Vencidos', cor: 'text-amber-400', ativo: 'border-amber-400 text-amber-300' },
+    { key: 'FATURADO', label: 'Ganhos', cor: 'text-emerald-400', ativo: 'border-emerald-400 text-emerald-300' },
+    { key: 'CANCELADO', label: 'Perdidos', cor: 'text-red-400', ativo: 'border-red-400 text-red-300' },
+  ];
+
   const filtrados = useMemo(() => {
     let result = orcamentos.filter(o => {
       const term = deferredBusca.toLowerCase();
@@ -174,6 +194,27 @@ function OrcamentosContent() {
             <h1 className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-500 mb-2">Orçamentos em Aberto</h1>
             <p className="text-gray-400">Acompanhamento e negociação de propostas comerciais.</p>
           </div>
+        </div>
+
+        {/* Abas de status — atalho para as visões mais pedidas (ex.: Vencidos) */}
+        <div className="flex flex-wrap gap-1 border-b border-white/10">
+          {ABAS.map(aba => {
+            const ativa = statusFiltro === aba.key;
+            return (
+              <button
+                key={aba.key || 'todos'}
+                onClick={() => setStatusFiltro(aba.key)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  ativa ? aba.ativo : 'border-transparent text-gray-500 hover:text-gray-300'
+                }`}
+              >
+                {aba.label}
+                <span className={`ml-2 text-[11px] tabular-nums ${ativa ? '' : 'text-gray-600'}`}>
+                  {contagemStatus[aba.key]?.toLocaleString('pt-BR') ?? 0}
+                </span>
+              </button>
+            );
+          })}
         </div>
 
         {/* Barra de Filtros Avançados */}

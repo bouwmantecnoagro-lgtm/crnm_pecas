@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Zap, Clock, CheckCircle2, XCircle, RotateCcw, Filter, Plus, BarChart3, AlertTriangle, TrendingUp, Users, Loader2, Calendar, Search } from 'lucide-react';
+import { Zap, Clock, CheckCircle2, XCircle, RotateCcw, Filter, Plus, BarChart3, AlertTriangle, TrendingUp, Users, Loader2, Calendar, Search, FileText } from 'lucide-react';
 import AcaoCard from '@/components/AcaoCard';
 import { getCategoriaAcao, CATEGORIAS_ACAO } from '@/lib/acao';
 import CriarAcaoModal from '@/components/CriarAcaoModal';
@@ -18,6 +18,7 @@ export default function PainelAcoes() {
   const [filtroPrioridade, setFiltroPrioridade] = useState('');
   const [filtroCategoria, setFiltroCategoria] = useState('');
   const [filtroCliente, setFiltroCliente] = useState('');
+  const [filtroOrcamento, setFiltroOrcamento] = useState('');
   const [criarModal, setCriarModal] = useState(false);
   const [concluirAcao, setConcluirAcao] = useState<any>(null);
   const [editarAcao, setEditarAcao] = useState<any>(null);
@@ -44,6 +45,14 @@ export default function PainelAcoes() {
     String(a.nome_cliente || '').toLowerCase().includes(qCliente) ||
     String(a.codigo_cliente || '').toLowerCase().includes(qCliente);
 
+  // Busca por nº do orçamento. O ERP grava zero-padded ('00008639'), mas quem
+  // digita usa o número curto ('8639') — compara sem os zeros à esquerda para
+  // as duas formas acharem o mesmo card.
+  const semZeros = (v: any) => String(v ?? '').trim().replace(/^0+/, '');
+  const qOrcamento = semZeros(filtroOrcamento);
+  const matchOrcamento = (a: any) =>
+    !qOrcamento || semZeros(a.numero_orcamento).includes(qOrcamento);
+
   const acoesFiltradas = acoes.filter((a: any) => {
     if (filtroStatus === 'ATIVAS' && !['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'].includes(a.status)) return false;
     if (filtroStatus && filtroStatus !== 'ATIVAS' && a.status !== filtroStatus) return false;
@@ -51,6 +60,7 @@ export default function PainelAcoes() {
     if (filtroPrioridade && a.prioridade !== filtroPrioridade) return false;
     if (filtroCategoria && getCategoriaAcao(a).key !== filtroCategoria) return false;
     if (!matchCliente(a)) return false;
+    if (!matchOrcamento(a)) return false;
     return true;
   });
 
@@ -78,6 +88,7 @@ export default function PainelAcoes() {
     if (filtroPrioridade && a.prioridade !== filtroPrioridade) return false;
     if (filtroCategoria && getCategoriaAcao(a).key !== filtroCategoria) return false;
     if (!matchCliente(a)) return false;
+    if (!matchOrcamento(a)) return false;
     return true;
   });
 
@@ -240,6 +251,21 @@ export default function PainelAcoes() {
             </button>
           )}
         </div>
+        <div className="relative">
+          <FileText size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-500" />
+          <input
+            type="text"
+            value={filtroOrcamento}
+            onChange={e => setFiltroOrcamento(e.target.value)}
+            placeholder="Nº do orçamento..."
+            className="bg-black/30 border border-white/10 text-xs rounded-lg pl-7 pr-3 py-1.5 text-gray-300 placeholder:text-gray-600 focus:outline-none focus:border-violet-500/50 w-40"
+          />
+          {filtroOrcamento && (
+            <button onClick={() => setFiltroOrcamento('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white" title="Limpar busca">
+              <XCircle size={13} />
+            </button>
+          )}
+        </div>
         <select value={filtroVendedor} onChange={e => setFiltroVendedor(e.target.value)} className="bg-black/30 border border-white/10 text-xs rounded-lg px-3 py-1.5 text-gray-300 focus:outline-none focus:border-violet-500/50">
           <option value="">Todos os Vendedores</option>
           {vendedoresUnicos.map((v: any) => <option key={v.codigo} value={v.codigo}>{v.nome}</option>)}
@@ -278,8 +304,8 @@ export default function PainelAcoes() {
             <option value="">Todas</option>
           </select>
         )}
-        {(filtroVendedor || filtroPrioridade || filtroCategoria || filtroCliente) && (
-          <button onClick={() => { setFiltroVendedor(''); setFiltroPrioridade(''); setFiltroCategoria(''); setFiltroCliente(''); }} className="text-red-400 text-xs flex items-center gap-1 px-2 hover:text-red-300">
+        {(filtroVendedor || filtroPrioridade || filtroCategoria || filtroCliente || filtroOrcamento) && (
+          <button onClick={() => { setFiltroVendedor(''); setFiltroPrioridade(''); setFiltroCategoria(''); setFiltroCliente(''); setFiltroOrcamento(''); }} className="text-red-400 text-xs flex items-center gap-1 px-2 hover:text-red-300">
             <XCircle size={12} /> Limpar
           </button>
         )}

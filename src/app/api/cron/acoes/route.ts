@@ -175,16 +175,19 @@ export async function GET(request: Request) {
     // Só mexe em FOLLOW_UP_ORCAMENTO: REATIVACAO_ORCAMENTO existe JUSTAMENTE para
     // orçamento cancelado/vencido (REGRA 3) e não pode ser encerrada por esta regra.
     let followUpsCancelados = 0;
+    let acoesConcluidasFaturadas = 0;
     {
-      // Follow-ups em aberto com orçamento vinculado — do robô ou criados à mão.
+      // Ações de orçamento em aberto — do robô ou criadas à mão. Os DOIS tipos
+      // entram porque a regra de faturamento (abaixo) vale para ambos; a de
+      // cancelamento continua restrita ao follow-up.
       const followUps: any[] = [];
       let from = 0;
       const PAGE = 1000;
       while (true) {
         const { data, error } = await supabase
           .from('crm_acoes')
-          .select('id, numero_orcamento, filial_cliente, codigo_cliente, loja_cliente')
-          .eq('tipo', 'FOLLOW_UP_ORCAMENTO')
+          .select('id, tipo, numero_orcamento, filial_cliente, codigo_cliente, loja_cliente')
+          .in('tipo', ['FOLLOW_UP_ORCAMENTO', 'REATIVACAO_ORCAMENTO'])
           .in('status', ['PENDENTE', 'EM_ANDAMENTO', 'REAGENDADA'])
           .not('numero_orcamento', 'is', null)
           .range(from, from + PAGE - 1);
@@ -229,6 +232,7 @@ export async function GET(request: Request) {
       }
 
       const idsCancelar: string[] = [];
+      const idsConcluir: string[] = [];
       for (const a of followUps) {
         let linhas = linhasPorNumero.get(String(a.numero_orcamento)) ?? [];
         const fil = filialDe(a.filial_cliente);
@@ -238,9 +242,19 @@ export async function GET(request: Request) {
           linhas = linhas.filter(l => l.cli === cli);
         }
         // Sem linha do orçamento (não sincronizado ou removido no cleanup) → não mexe.
-        // Cancelado como um todo: TODAS as linhas (uma por produto) canceladas.
-        // Cancel.Parcial no Protheus deixa itens vivos — aí o follow-up continua valendo.
-        if (linhas.length > 0 && linhas.every(l => l.st === 'CANCELADO')) idsCancelar.push(a.id);
+        if (linhas.length === 0) continue;
+
+        // GANHO: orçamento inteiro faturado (nota emitida). A ação cumpriu o
+        // objetivo — vira CONCLUIDA/VENDA_REALIZADA, não CANCELADA. Vale para
+        // os dois tipos: reativação cujo orçamento faturou também deu certo.
+        // Faturamento PARCIAL não encerra: sobrou item para o vendedor buscar.
+        if (linhas.every(l => l.st === 'FATURADO')) { idsConcluir.push(a.id); continue; }
+
+        // PERDA: cancelado como um todo: TODAS as linhas (uma por produto)
+        // canceladas. Cancel.Parcial no Protheus deixa itens vivos — aí o
+        // follow-up continua valendo. Só FOLLOW_UP: REATIVACAO_ORCAMENTO existe
+        // JUSTAMENTE para orçamento cancelado/vencido (REGRA 3).
+        if (a.tipo === 'FOLLOW_UP_ORCAMENTO' && linhas.every(l => l.st === 'CANCELADO')) idsCancelar.push(a.id);
       }
 
       for (let i = 0; i < idsCancelar.length; i += 200) {
@@ -255,6 +269,24 @@ export async function GET(request: Request) {
           .in('id', lote);
         if (error) console.error('Erro ao cancelar follow-ups de orçamentos cancelados:', error);
         else followUpsCancelados += lote.length;
+      }
+
+      // data_conclusao é o que alimenta a taxa de conclusão e o histórico de
+      // quem executou — toda ação CONCLUIDA no app tem esse campo preenchido.
+      for (let i = 0; i < idsConcluir.length; i += 200) {
+        const lote = idsConcluir.slice(i, i + 200);
+        const agora = new Date().toISOString();
+        const { error } = await supabase
+          .from('crm_acoes')
+          .update({
+            status: 'CONCLUIDA',
+            resultado: 'VENDA_REALIZADA',
+            data_conclusao: agora,
+            updated_at: agora,
+          })
+          .in('id', lote);
+        if (error) console.error('Erro ao concluir ações de orçamentos faturados:', error);
+        else acoesConcluidasFaturadas += lote.length;
       }
     }
 
@@ -472,7 +504,7 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Processo finalizado. ${acoesCriadas} novas ações automáticas geradas, ${acoesReatribuidas} realinhadas com a carteira atual, ${followUpsCancelados} follow-ups cancelados (orçamento cancelado).`
+      message: `Processo finalizado. ${acoesCriadas} novas ações automáticas geradas, ${acoesReatribuidas} realinhadas com a carteira atual, ${followUpsCancelados} follow-ups cancelados (orçamento cancelado), ${acoesConcluidasFaturadas} concluídas (orçamento faturado).`
     });
 
   } catch (error: any) {
