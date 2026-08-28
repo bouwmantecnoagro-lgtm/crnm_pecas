@@ -61,11 +61,19 @@ FROM [dbo].[CLIENTE]
     # Nova fonte (e-mail Edilson/TI 27/08/2026): 3 views de BI, uma por estado.
     # O status e derivado da view de origem - a view antiga [dbo].[ORCAMENTO]
     # congelava o STATUS e cancelamentos nao chegavam ao CRM.
-    # A view traz abertos E vencidos (validade passada); o CRM deriva VENCIDO
-    # pela validade. Garantias fora do funil - decisao do Vanderlei, 28/08/2026.
+    # Abertos e vencidos vem de views SEPARADAS, com as MESMAS colunas
+    # (confirmado pelo Edilson em 29/08/2026). O CRM grava as duas como
+    # ABERTO e deriva VENCIDO pela validade (getStatusVivo), que e como o
+    # app ja trabalha - por isso as duas usam o mesmo processador.
+    # Garantias fora do funil - decisao do Vanderlei, 28/08/2026.
     "OrcamentosAbertos" = @"
 SELECT [ORCAMENTO_FILIAL], [ORCAMENTO_COD_CLI], [ORCAMENTO_LOJ_CLI], [ORCAMENTO_NOME_CLIENTE], [ORCAMENTO_EMISSAO], [ORCAMENTO_VALIDADE], [ORCAMENTO_PRODUTO], [ORCAMENTO_NUMERO], [ORCAMENTO_QUANTIDADE], [ORCAMENTO_PRECO], [ORCAMENTO_TOTAL], [ORCAMENTO_CUSTO], [ORCAMENTO_CODIGO_VENDEDOR], [ORCAMENTO_NOME_VENDEDOR], [ORCAMENTO_TIPO_OPERACAO]
 FROM [dbo].[V_BI_SUPRIMENTOS_ORCAMENTOS]
+WHERE [ORCAMENTO_TIPO_OPERACAO] NOT LIKE '%GARANTIA%'
+"@
+    "OrcamentosVencidos" = @"
+SELECT [ORCAMENTO_FILIAL], [ORCAMENTO_COD_CLI], [ORCAMENTO_LOJ_CLI], [ORCAMENTO_NOME_CLIENTE], [ORCAMENTO_EMISSAO], [ORCAMENTO_VALIDADE], [ORCAMENTO_PRODUTO], [ORCAMENTO_NUMERO], [ORCAMENTO_QUANTIDADE], [ORCAMENTO_PRECO], [ORCAMENTO_TOTAL], [ORCAMENTO_CUSTO], [ORCAMENTO_CODIGO_VENDEDOR], [ORCAMENTO_NOME_VENDEDOR], [ORCAMENTO_TIPO_OPERACAO]
+FROM [dbo].[V_BI_SUPRIMENTOS_ORCAMENTOS_VENC]
 WHERE [ORCAMENTO_TIPO_OPERACAO] NOT LIKE '%GARANTIA%'
 "@
     # OBS do TI: considerar apenas Status_orcamento = 'Cancelado'.
@@ -193,14 +201,17 @@ try {
         Write-Log "Todos os lotes enviados com sucesso!"
 
         # E) Cleanup de fantasmas: orcamentos no Supabase que o ERP nao devolve mais.
-        # Na nova fonte, "ativo" = estar na view de abertos: quem sai dela ou
-        # cancelou (view de cancelados atualiza) ou faturou (view de vendas
-        # atualiza) ou foi arquivado - e nesse ultimo caso o cleanup apaga.
-        if ($PayloadObj.ContainsKey("OrcamentosAbertos")) {
+        # Na nova fonte, "ativo" = estar na view de abertos OU na de vencidos.
+        # Quem sai das duas ou cancelou (view de cancelados atualiza) ou faturou
+        # (view de vendas atualiza) ou foi arquivado - so nesse caso o cleanup apaga.
+        if ($PayloadObj.ContainsKey("OrcamentosAbertos") -or $PayloadObj.ContainsKey("OrcamentosVencidos")) {
             $idsAtivos = @()
-            foreach ($o in $PayloadObj["OrcamentosAbertos"]) {
-                $prod = "$($o.ORCAMENTO_PRODUTO)".Trim()
-                $idsAtivos += "$($o.ORCAMENTO_FILIAL)_$($o.ORCAMENTO_NUMERO)_$prod"
+            foreach ($chave in @("OrcamentosAbertos", "OrcamentosVencidos")) {
+                if (-not $PayloadObj.ContainsKey($chave)) { continue }
+                foreach ($o in $PayloadObj[$chave]) {
+                    $prod = "$($o.ORCAMENTO_PRODUTO)".Trim()
+                    $idsAtivos += "$($o.ORCAMENTO_FILIAL)_$($o.ORCAMENTO_NUMERO)_$prod"
+                }
             }
             Write-Log "Cleanup: enviando $($idsAtivos.Count) IDs ativos (ABERTO/VENCIDO) ao endpoint de limpeza..."
             $CleanupPayload = @{ OrcamentosAtivos = $idsAtivos } | ConvertTo-Json -Depth 4 -Compress

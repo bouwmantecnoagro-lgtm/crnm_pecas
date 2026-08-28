@@ -135,9 +135,10 @@ function processOrcamento(o: any): any {
 // Upsert só toca as colunas enviadas — STATUS_OVERRIDE segue intocado.
 // =====================================================================
 
-// V_BI_SUPRIMENTOS_ORCAMENTOS → ABERTO.
-// A view traz abertos E vencidos; gravamos tudo como ABERTO e o app deriva
-// VENCIDO pela validade (getStatusVivo). Garantias ficam fora do funil
+// V_BI_SUPRIMENTOS_ORCAMENTOS (abertos) e V_BI_SUPRIMENTOS_ORCAMENTOS_VENC
+// (vencidos) → ABERTO. As duas views têm as mesmas colunas e usam este mesmo
+// processador: gravamos ABERTO e o app deriva VENCIDO pela validade
+// (getStatusVivo), como já fazia. Garantias ficam fora do funil
 // (decisão do Vanderlei, 28/08/2026) — o SQL do .ps1 já filtra; aqui é a
 // segunda barreira. Devolve null para linha descartada.
 function processOrcamentoAberto(o: any): any | null {
@@ -296,7 +297,8 @@ export async function POST(request: Request) {
     // Nova fonte (3 views de BI). Dedup por id dentro do lote: o Postgres
     // rejeita upsert que toca o mesmo id duas vezes na mesma chamada.
     const dedupePorId = (lista: any[]) => [...new Map(lista.map(r => [r.id, r])).values()];
-    const orcAbertos = dedupePorId((payload.OrcamentosAbertos || []).map(processOrcamentoAberto).filter(Boolean));
+    const orcAbertos = dedupePorId([...(payload.OrcamentosAbertos || []), ...(payload.OrcamentosVencidos || [])]
+      .map(processOrcamentoAberto).filter(Boolean));
     const orcCancelados = dedupePorId((payload.OrcamentosCancelados || []).map(processOrcamentoCancelado).filter(Boolean));
     const orcFaturados = dedupePorId((payload.OrcamentosFaturados || []).map(processOrcamentoFaturado).filter(Boolean));
 
