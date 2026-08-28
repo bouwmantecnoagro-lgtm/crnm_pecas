@@ -291,7 +291,18 @@ export async function POST(request: Request) {
       }
       return parsed;
     });
-    const orcamentos = (payload.Orcamentos || []).map((o: any) => processOrcamento(o));
+    // FONTE ANTIGA DESLIGADA (28/08/2026). A chave `Orcamentos` vinha da view
+    // unica [dbo].[ORCAMENTO], cujo STATUS congelava no momento da extracao —
+    // era ela que ressuscitava orcamento cancelado como ABERTO. A tarefa antiga
+    // continuou agendada no SRV-103 depois da migracao e sobrescrevia os status
+    // ja corrigidos; como o desligamento no servidor depende do TI, o bloqueio
+    // e feito aqui. Clientes e Maquinas do script antigo seguem aceitos: as
+    // queries dessas duas entidades sao identicas nas duas versoes.
+    const legadoRecebido = Array.isArray(payload.Orcamentos) ? payload.Orcamentos.length : 0;
+    if (legadoRecebido > 0) {
+      console.warn(`Sync legado ignorado: ${legadoRecebido} orcamentos no formato antigo (chave "Orcamentos").`);
+    }
+    const orcamentos: any[] = [];
     const maquinas = (payload.Maquinas || []).map((m: any, i: number) => processMaquina(m, i));
 
     // Nova fonte (3 views de BI). Dedup por id dentro do lote: o Postgres
@@ -344,8 +355,9 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Erro no banco', detalhes: erros }, { status: 500 });
     }
 
-    const msg = `Sync OK: ${clientes.length} cli, ${orcamentos.length} orc, ${maquinas.length} maq, ` +
-      `${orcAbertos.length} orc-abertos, ${orcCancelados.length} orc-cancelados, ${orcFaturados.length} orc-faturados`;
+    const msg = `Sync OK: ${clientes.length} cli, ${maquinas.length} maq, ` +
+      `${orcAbertos.length} orc-abertos, ${orcCancelados.length} orc-cancelados, ${orcFaturados.length} orc-faturados` +
+      (legadoRecebido > 0 ? ` | ATENCAO: ${legadoRecebido} orcamentos no formato ANTIGO foram IGNORADOS (script desatualizado no servidor)` : '');
     console.log(msg);
 
 

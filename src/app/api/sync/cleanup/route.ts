@@ -48,14 +48,22 @@ export async function POST(request: Request) {
     // voltar como CANCELADO/FATURADO pelas outras views. Só é candidata a deleção
     // a linha cuja validade ainda está vigente (ou sem validade) e que mesmo
     // assim o ERP não devolve — essa sim sumiu de verdade (ex.: arquivada).
+    // Linha "tocada" por uma carga há poucos minutos foi devolvida pelo ERP
+    // agora — não pode ser fantasma. A guarda existe porque mais de uma carga
+    // pode conviver no servidor (a antiga ficou agendada depois da migração):
+    // sem ela, o cleanup de uma apagaria o que a outra acabou de gravar, e os
+    // orçamentos ficariam piscando entre as execuções.
+    const RECENTE_MIN = 30;
+    const recenteISO = new Date(Date.now() - RECENTE_MIN * 60 * 1000).toISOString();
     const hoje = new Date().toISOString().split('T')[0];
     const candidatos: string[] = [];
+    let protegidosRecentes = 0;
     const step = 1000;
     let from = 0;
     while (true) {
       const { data, error } = await supabase
         .from('crm_orcamentos')
-        .select('id, ORC_DATA_ORCAMENTO')
+        .select('id, ORC_DATA_ORCAMENTO, updated_at')
         .or('Status.is.null,Status.eq.ABERTO,Status.eq.EM ABERTO,Status.eq.VENCIDO')
         .is('STATUS_OVERRIDE', null)
         .range(from, from + step - 1);
@@ -64,6 +72,7 @@ export async function POST(request: Request) {
       for (const r of data) {
         const validade = r.ORC_DATA_ORCAMENTO ? String(r.ORC_DATA_ORCAMENTO).split('T')[0] : null;
         if (validade && validade < hoje) continue; // vencido legítimo — não apaga
+        if (r.updated_at && r.updated_at > recenteISO) { protegidosRecentes++; continue; }
         candidatos.push(r.id);
       }
       if (data.length < step) break;
@@ -90,7 +99,8 @@ export async function POST(request: Request) {
       deletados += count || 0;
     }
 
-    const msg = `Cleanup OK: ${deletados} fantasmas removidos. Candidatos avaliados: ${candidatos.length}. Ativos no ERP: ${idsAtivos.length}.`;
+    const msg = `Cleanup OK: ${deletados} fantasmas removidos. Candidatos avaliados: ${candidatos.length}. ` +
+      `Ativos no ERP: ${idsAtivos.length}. Protegidos por carga recente: ${protegidosRecentes}.`;
     console.log(msg);
 
     return NextResponse.json({
