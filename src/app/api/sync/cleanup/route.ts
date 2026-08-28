@@ -42,19 +42,30 @@ export async function POST(request: Request) {
     }
 
     // 1. Pega TODOS os ids do Supabase que estão em estado "mutável" e sem override.
+    // MIGRAÇÃO (3 views de BI): a lista de ativos passou a ser a view de ABERTOS.
+    // Linha com validade já vencida que saiu dessa view não é fantasma — é um
+    // VENCIDO legítimo (alimenta win rate e a regra de reativação) e um dia pode
+    // voltar como CANCELADO/FATURADO pelas outras views. Só é candidata a deleção
+    // a linha cuja validade ainda está vigente (ou sem validade) e que mesmo
+    // assim o ERP não devolve — essa sim sumiu de verdade (ex.: arquivada).
+    const hoje = new Date().toISOString().split('T')[0];
     const candidatos: string[] = [];
     const step = 1000;
     let from = 0;
     while (true) {
       const { data, error } = await supabase
         .from('crm_orcamentos')
-        .select('id')
+        .select('id, ORC_DATA_ORCAMENTO')
         .or('Status.is.null,Status.eq.ABERTO,Status.eq.EM ABERTO,Status.eq.VENCIDO')
         .is('STATUS_OVERRIDE', null)
         .range(from, from + step - 1);
       if (error) throw error;
       if (!data || data.length === 0) break;
-      for (const r of data) candidatos.push(r.id);
+      for (const r of data) {
+        const validade = r.ORC_DATA_ORCAMENTO ? String(r.ORC_DATA_ORCAMENTO).split('T')[0] : null;
+        if (validade && validade < hoje) continue; // vencido legítimo — não apaga
+        candidatos.push(r.id);
+      }
       if (data.length < step) break;
       from += step;
     }

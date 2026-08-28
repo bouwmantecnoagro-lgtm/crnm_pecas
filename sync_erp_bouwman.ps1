@@ -23,7 +23,7 @@ $SqlPassword   = "" # O TI deve preencher com a senha do usuário 'consulta'
 
 # Configurações de API (Nuvem / CRM na Vercel)
 # Este é o nosso Edge Hub que receberá os dados.
-$ApiEndpoint = "https://crm-pecas.vercel.app/api/sync"
+$ApiEndpoint = "https://crm-pecas.bouwman.com.br/api/sync" # URL nova (conta Vercel corporativa) — a antiga crm-pecas.vercel.app morreu na migração de 23/06/2026
 $ApiKey      = "bouwman_sync_ak_7a8b9c0d1e2f3g4h5i" # Chave segura gerada pela equipe de desenvolvimento do CRM
 
 # Log Local do Servidor 
@@ -58,9 +58,27 @@ $Queries = @{
 SELECT [FILIAL], [CODIGO_CLIENTE], [LOJA_CLIENTE], [NOME_CLIENTE], [CNPJ_CPF], [CIDADE], [UF], [COD_IBGE], [VENDEDOR_RESP], [NOME_VENDEDOR_RESP], [DDD], [TELEFONE], [CELULAR_WHATSAPP_CONTATO], [EMAIL], [DIAS_SEM_COMPRA], [DATA_ULT_COMPRA], [NF_12M], [STATUS_BASE]
 FROM [dbo].[CLIENTE]
 "@
-    "Orcamentos" = @"
-SELECT [FILIAL_ORC], [CODIGO_CLIENTE], [LOJA_CLIENTE], [CLIENTE_ORC], [ORC_DATA_EMISSAO_ORCAMENTO], [ORC_DATA_ORCAMENTO], [CODIGO_PRODUTO_ORC], [ORC_NUMERO_ORCAMENTO], [ORC_SALDO_ORCAMENTO], [ORC_VALOR_UNITARIO], [ORC_VALOR_TOTAL], [ORC_CUSTO_PRODUTO], [ORC_CODIGO_VENDEDOR], [ORC_NOME_VENDEDOR], [STATUS]
-FROM [dbo].[ORCAMENTO]
+    # Nova fonte (e-mail Edilson/TI 27/08/2026): 3 views de BI, uma por estado.
+    # O status e derivado da view de origem - a view antiga [dbo].[ORCAMENTO]
+    # congelava o STATUS e cancelamentos nao chegavam ao CRM.
+    # A view traz abertos E vencidos (validade passada); o CRM deriva VENCIDO
+    # pela validade. Garantias fora do funil - decisao do Vanderlei, 28/08/2026.
+    "OrcamentosAbertos" = @"
+SELECT [ORCAMENTO_FILIAL], [ORCAMENTO_COD_CLI], [ORCAMENTO_LOJ_CLI], [ORCAMENTO_NOME_CLIENTE], [ORCAMENTO_EMISSAO], [ORCAMENTO_VALIDADE], [ORCAMENTO_PRODUTO], [ORCAMENTO_NUMERO], [ORCAMENTO_QUANTIDADE], [ORCAMENTO_PRECO], [ORCAMENTO_TOTAL], [ORCAMENTO_CUSTO], [ORCAMENTO_CODIGO_VENDEDOR], [ORCAMENTO_NOME_VENDEDOR], [ORCAMENTO_TIPO_OPERACAO]
+FROM [dbo].[V_BI_SUPRIMENTOS_ORCAMENTOS]
+WHERE [ORCAMENTO_TIPO_OPERACAO] NOT LIKE '%GARANTIA%'
+"@
+    # OBS do TI: considerar apenas Status_orcamento = 'Cancelado'.
+    "OrcamentosCancelados" = @"
+SELECT [Codigo_Filial], [Num_orc], [Codigo_item], [Codigo_cliente], [Loja_cliente], [Nome_cliente], [Data_orcamento], [Quantidade], [Valor], [Codigo_vendedor], [Nome_vendedor], [Descricao_motivo], [Data_Cancelamento], [Status_orcamento]
+FROM [dbo].[V_BI_ORCAMENTOS_CANCELADOS]
+WHERE [Status_orcamento] = 'Cancelado'
+"@
+    # OBS do TI: considerar somente registros com NUMERO_ORCAMENTO preenchido.
+    "OrcamentosFaturados" = @"
+SELECT [FILIAL], [CLIENTE], [LOJA], [A1_NOME], [DATA_ORCAMENTO], [CODIGO], [NUMERO_ORCAMENTO], [QUANTIDADE], [UNITARIO], [TOTAL], [CUSTO], [COD_VENDEDOR], [VENDEDOR]
+FROM [dbo].[V_BI_SUPRIMENTOS_VENDAS]
+WHERE [NUMERO_ORCAMENTO] IS NOT NULL AND LTRIM(RTRIM([NUMERO_ORCAMENTO])) <> ''
 "@
     "Maquinas" = @"
 SELECT [FILIAL], [FABRICANTE], [MODELO], [CATEGORIA], [ESTADO], [CODIGO], [CHASSI], [REGIAO], [QUANTIDADE], [COD_VENDEDOR], [NOME_VENDEDOR], [EMISSAO], [NOTA_FISCAL], [SERIE], [UF_NOTA], [COD_CLIENTE], [LOJA_CLIENTE], [NOME_CLIENTE], [UF_CLIENTE], [ENDERECO], [COD_MUN], [MUNICIPIO], [UF_MUN_CLIENTE], [DDD], [TELEFONE], [PRIMEIRA_COMPRA], [ULTIMA_COMPRA], [NUMERO_DE_COMPRAS], [EMAIL], [TOTAL], [TIPO_VENDA]
@@ -174,18 +192,15 @@ try {
 
         Write-Log "Todos os lotes enviados com sucesso!"
 
-        # E) Cleanup de fantasmas: orcamentos no Supabase que o ERP nao devolve mais
-        # (geralmente porque viraram pedido faturado e foram arquivados pra historico).
-        # Envia apenas os IDs com STATUS = ABERTO ou VENCIDO (estados mutaveis).
-        # FATURADO/CANCELADO sao terminais e nao acumulam fantasmas.
-        if ($PayloadObj.ContainsKey("Orcamentos")) {
+        # E) Cleanup de fantasmas: orcamentos no Supabase que o ERP nao devolve mais.
+        # Na nova fonte, "ativo" = estar na view de abertos: quem sai dela ou
+        # cancelou (view de cancelados atualiza) ou faturou (view de vendas
+        # atualiza) ou foi arquivado - e nesse ultimo caso o cleanup apaga.
+        if ($PayloadObj.ContainsKey("OrcamentosAbertos")) {
             $idsAtivos = @()
-            foreach ($o in $PayloadObj["Orcamentos"]) {
-                $st = "$($o.STATUS)".Trim().ToUpper()
-                if ($st -eq "ABERTO" -or $st -eq "EM ABERTO" -or $st -eq "VENCIDO") {
-                    $prod = "$($o.CODIGO_PRODUTO_ORC)".Trim()
-                    $idsAtivos += "$($o.FILIAL_ORC)_$($o.ORC_NUMERO_ORCAMENTO)_$prod"
-                }
+            foreach ($o in $PayloadObj["OrcamentosAbertos"]) {
+                $prod = "$($o.ORCAMENTO_PRODUTO)".Trim()
+                $idsAtivos += "$($o.ORCAMENTO_FILIAL)_$($o.ORCAMENTO_NUMERO)_$prod"
             }
             Write-Log "Cleanup: enviando $($idsAtivos.Count) IDs ativos (ABERTO/VENCIDO) ao endpoint de limpeza..."
             $CleanupPayload = @{ OrcamentosAtivos = $idsAtivos } | ConvertTo-Json -Depth 4 -Compress
