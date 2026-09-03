@@ -46,7 +46,7 @@ interface AcaoCardProps {
   // A filial vai junto porque código+loja se repete entre as empresas 01/05/10/15:
   // sem ela o Cliente360 abre o cadastro de outro cliente.
   onClickCliente?: (codigo: string, loja: string, filial?: string | null) => void;
-  onClickOrcamento?: (numero: string) => void;
+  onClickOrcamento?: (numero: string, acao: any) => void;
   compact?: boolean;
 }
 
@@ -89,7 +89,7 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
             {acao.filial_cliente && <span className="text-gray-600"> · Fil {acao.filial_cliente}</span>}
             {acao.numero_orcamento && (
               <span
-                onClick={onClickOrcamento ? (e) => { e.stopPropagation(); onClickOrcamento(String(acao.numero_orcamento)); } : undefined}
+                onClick={onClickOrcamento ? (e) => { e.stopPropagation(); onClickOrcamento(String(acao.numero_orcamento), acao); } : undefined}
                 onMouseDown={onClickOrcamento ? (e) => e.stopPropagation() : undefined}
                 className={onClickOrcamento ? 'text-amber-300 hover:text-amber-200 cursor-pointer' : 'text-gray-500'}
               > · Orç #{acao.numero_orcamento}</span>
@@ -168,7 +168,7 @@ export default function AcaoCard({ acao, onConcluir, onEdit, onDragStart, onClic
         <div className="pl-2 mb-3">
           {onClickOrcamento ? (
             <button
-              onClick={(e) => { e.stopPropagation(); onClickOrcamento(String(acao.numero_orcamento)); }}
+              onClick={(e) => { e.stopPropagation(); onClickOrcamento(String(acao.numero_orcamento), acao); }}
               onMouseDown={(e) => e.stopPropagation()}
               className="inline-flex items-center gap-1 text-[10px] font-bold bg-amber-500/10 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded hover:bg-amber-500/25 transition-colors cursor-pointer relative z-10"
               title="Ver detalhes do orçamento"

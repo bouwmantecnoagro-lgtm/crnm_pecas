@@ -25,7 +25,7 @@ export default function PainelAcoes() {
   const [visao, setVisao] = useState<'kanban' | 'agenda' | 'lista'>('kanban');
   const [draggedAcaoId, setDraggedAcaoId] = useState<number | string | null>(null);
   const [cliente360, setCliente360] = useState<{codigo: string, loja: string, filial?: string | null} | null>(null);
-  const [orcamentoDetalhe, setOrcamentoDetalhe] = useState<string | null>(null);
+  const [orcamentoDetalhe, setOrcamentoDetalhe] = useState<{ numero: string; filial?: string | null; codigo?: string | null; loja?: string | null } | null>(null);
 
   // Extrair vendedores únicos dos dados já carregados
   const vendedoresUnicos = Array.from(
@@ -345,7 +345,7 @@ export default function PainelAcoes() {
                     onConcluir={acao.status !== 'CONCLUIDA' && acao.status !== 'CANCELADA' ? () => setConcluirAcao(acao) : undefined}
                     onEdit={() => setEditarAcao(acao)}
                     onClickCliente={acao.codigo_cliente ? (cod, loja, filial) => setCliente360({ codigo: cod, loja, filial }) : undefined}
-                    onClickOrcamento={(num) => setOrcamentoDetalhe(num)}
+                    onClickOrcamento={(num, a) => setOrcamentoDetalhe({ numero: num, filial: a.filial_cliente, codigo: a.codigo_cliente, loja: a.loja_cliente })}
                     onDragStart={(e) => {
                       setDraggedAcaoId(acao.id);
                       e.dataTransfer.effectAllowed = 'move';
@@ -390,7 +390,7 @@ export default function PainelAcoes() {
                         onConcluir={acao.status !== 'CONCLUIDA' && acao.status !== 'CANCELADA' ? () => setConcluirAcao(acao) : undefined}
                         onEdit={() => setEditarAcao(acao)}
                         onClickCliente={acao.codigo_cliente ? (cod, loja, filial) => setCliente360({ codigo: cod, loja, filial }) : undefined}
-                    onClickOrcamento={(num) => setOrcamentoDetalhe(num)}
+                    onClickOrcamento={(num, a) => setOrcamentoDetalhe({ numero: num, filial: a.filial_cliente, codigo: a.codigo_cliente, loja: a.loja_cliente })}
                       />
                     ))}
                   </div>
@@ -417,7 +417,7 @@ export default function PainelAcoes() {
                   onConcluir={acao.status !== 'CONCLUIDA' && acao.status !== 'CANCELADA' ? () => setConcluirAcao(acao) : undefined}
                   onEdit={() => setEditarAcao(acao)}
                   onClickCliente={acao.codigo_cliente ? (cod, loja, filial) => setCliente360({ codigo: cod, loja, filial }) : undefined}
-                  onClickOrcamento={(num) => setOrcamentoDetalhe(num)}
+                  onClickOrcamento={(num, a) => setOrcamentoDetalhe({ numero: num, filial: a.filial_cliente, codigo: a.codigo_cliente, loja: a.loja_cliente })}
                 />
               ))}
             </div>
@@ -459,7 +459,10 @@ export default function PainelAcoes() {
       )}
       {orcamentoDetalhe && (
         <OrcamentoDetalheModal
-          numero={orcamentoDetalhe}
+          numero={orcamentoDetalhe.numero}
+          filial={orcamentoDetalhe.filial}
+          codigo={orcamentoDetalhe.codigo}
+          loja={orcamentoDetalhe.loja}
           onClose={() => setOrcamentoDetalhe(null)}
         />
       )}

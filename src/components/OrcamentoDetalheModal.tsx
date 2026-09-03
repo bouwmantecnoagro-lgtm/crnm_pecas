@@ -6,6 +6,10 @@ import { getStatusVivo, labelStatusOrcamento } from '@/lib/orcamento';
 
 interface OrcamentoDetalheModalProps {
   numero: string;
+  // Desempate: o número recicla entre filiais/anos/clientes.
+  filial?: string | null;
+  codigo?: string | null;
+  loja?: string | null;
   onClose: () => void;
 }
 
@@ -27,7 +31,7 @@ const STATUS_CHIP: Record<string, string> = {
   ABERTO: 'bg-sky-500/20 text-sky-300 border-sky-500/30',
 };
 
-export default function OrcamentoDetalheModal({ numero, onClose }: OrcamentoDetalheModalProps) {
+export default function OrcamentoDetalheModal({ numero, filial, codigo, loja, onClose }: OrcamentoDetalheModalProps) {
   const [linhas, setLinhas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [erro, setErro] = useState('');
@@ -36,7 +40,10 @@ export default function OrcamentoDetalheModal({ numero, onClose }: OrcamentoDeta
     let ativo = true;
     (async () => {
       try {
-        const res = await fetch(`/api/orcamentos?numero=${encodeURIComponent(numero)}`);
+        const qs = new URLSearchParams({ numero });
+        if (filial) qs.set('filial', filial);
+        if (codigo) { qs.set('codigo', String(codigo)); if (loja) qs.set('loja', String(loja)); }
+        const res = await fetch(`/api/orcamentos?${qs}`);
         const data = await res.json();
         if (!ativo) return;
         if (!res.ok) { setErro(data?.error || 'Erro ao carregar orçamento.'); return; }
@@ -48,7 +55,7 @@ export default function OrcamentoDetalheModal({ numero, onClose }: OrcamentoDeta
       }
     })();
     return () => { ativo = false; };
-  }, [numero]);
+  }, [numero, filial, codigo, loja]);
 
   const head = linhas[0] || {};
   const total = linhas.reduce((acc, l) => acc + (l.ORC_VALOR_TOTAL || 0), 0);

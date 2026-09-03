@@ -1,9 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
+import { chaveCliente, filialDe } from '@/lib/acao';
 
 export const dynamic = 'force-dynamic';
 
-// GET /api/orcamentos?numero=XXXX — retorna as linhas (1 por produto) de um orçamento.
+// GET /api/orcamentos?numero=XXXX[&filial=01&codigo=000123&loja=01] — retorna as linhas (1 por produto) de um orçamento.
+// O número recicla entre filiais/anos/clientes; filial e cliente (quando informados) desempatam.
 // Usa o cliente autenticado: RLS limita ao escopo do vendedor (admin vê tudo).
 export async function GET(request: Request) {
   try {
@@ -31,7 +33,16 @@ export async function GET(request: Request) {
       .order('ORC_VALOR_TOTAL', { ascending: false });
 
     if (error) throw error;
-    return NextResponse.json(data || []);
+
+    let linhas: any[] = data || [];
+    const fil = filialDe(searchParams.get('filial'));
+    if (fil) linhas = linhas.filter((l: any) => filialDe(l.FILIAL_ORC) === fil);
+    const codigo = searchParams.get('codigo');
+    if (codigo) {
+      const cli = chaveCliente(codigo, searchParams.get('loja'));
+      linhas = linhas.filter((l: any) => chaveCliente(l.CODIGO_CLIENTE, l.LOJA_CLIENTE) === cli);
+    }
+    return NextResponse.json(linhas);
   } catch (err: any) {
     return NextResponse.json({ error: err.message }, { status: 500 });
   }
